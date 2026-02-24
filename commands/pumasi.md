@@ -22,7 +22,7 @@ Inspect `$ARGUMENTS` to determine the action:
 
 | Argument Pattern | Action | Skill |
 |-----------------|--------|-------|
-| `[작업 설명]` | 품앗이 모드로 작업 시작 | pumasi-exec |
+| `[작업 설명]` | 품앗이 모드로 작업 시작 | pumasi |
 | (no argument) | 인터랙티브 메뉴 표시 | See below |
 
 ## No Argument Provided
@@ -46,11 +46,11 @@ When no argument is provided, present the following interactive menu using `AskU
 }
 ```
 
-After user selection, ask for detailed description, then invoke pumasi-exec skill.
+After user selection, ask for detailed description, then invoke pumasi skill.
 
 ## Execute
 
-Once the action is determined, follow the pumasi-exec skill's execution flow.
+Once the action is determined, follow the pumasi skill's execution flow.
 
 Skill content is located at:
-- `${CLAUDE_PLUGIN_ROOT}/skills/pumasi-exec/SKILL.md` — Codex 병렬 실행 워크플로우
+- `${CLAUDE_PLUGIN_ROOT}/skills/pumasi/SKILL.md` — Codex 병렬 실행 워크플로우

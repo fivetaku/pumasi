@@ -1,5 +1,5 @@
 ---
-name: pumasi-exec
+name: pumasi
 description: Codex CLI를 병렬 외주 개발자로 활용하는 스킬. "/pumasi", "품앗이로 만들어줘", "품앗이 켜줘", "codex 외주로", "codex한테 시켜" 같은 요청에 사용됩니다. 3개 이상의 독립 모듈을 동시에 만들어야 할 때 자동 감지됩니다.
 ---
 
@@ -111,7 +111,7 @@ pumasi:
 ### Phase 3: 실행 (Claude → Bash)
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/skills/pumasi-exec/scripts/pumasi.sh start "프로젝트 개요: [간단한 설명]"
+${CLAUDE_PLUGIN_ROOT}/skills/pumasi/scripts/pumasi.sh start "프로젝트 개요: [간단한 설명]"
 ```
 
 Job 디렉토리 경로가 출력됨.
@@ -120,9 +120,9 @@ Job 디렉토리 경로가 출력됨.
 
 ```bash
 # 진행상황 확인 (완료 대기)
-${CLAUDE_PLUGIN_ROOT}/skills/pumasi-exec/scripts/pumasi.sh wait [JOB_DIR]
+${CLAUDE_PLUGIN_ROOT}/skills/pumasi/scripts/pumasi.sh wait [JOB_DIR]
 # 또는 텍스트 상태 확인
-${CLAUDE_PLUGIN_ROOT}/skills/pumasi-exec/scripts/pumasi.sh status --text [JOB_DIR]
+${CLAUDE_PLUGIN_ROOT}/skills/pumasi/scripts/pumasi.sh status --text [JOB_DIR]
 ```
 
 wait 명령은 의미 있는 상태 변화가 생길 때까지 블로킹. 완료 시 JSON 반환.
@@ -130,7 +130,7 @@ wait 명령은 의미 있는 상태 변화가 생길 때까지 블로킹. 완료
 ### Phase 5: 동적 게이트 + 선택적 코드 리뷰 (Claude)
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/skills/pumasi-exec/scripts/pumasi.sh results [JOB_DIR]
+${CLAUDE_PLUGIN_ROOT}/skills/pumasi/scripts/pumasi.sh results [JOB_DIR]
 ```
 
 **3단계 검증 프로세스:**
@@ -169,7 +169,7 @@ Codex가 하는 일: 실제 수정 실행
 **수정이 필요 없는 경우**: 서브태스크 간 연결만 확인 후 정리.
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/skills/pumasi-exec/scripts/pumasi.sh clean [JOB_DIR]
+${CLAUDE_PLUGIN_ROOT}/skills/pumasi/scripts/pumasi.sh clean [JOB_DIR]
 ```
 
 ---
@@ -235,7 +235,7 @@ pumasi.sh stop [JOB_DIR]
 pumasi.sh clean [JOB_DIR]
 ```
 
-Scripts are located at `${CLAUDE_PLUGIN_ROOT}/skills/pumasi-exec/scripts/`.
+Scripts are located at `${CLAUDE_PLUGIN_ROOT}/skills/pumasi/scripts/`.
 
 ---
 
@@ -244,7 +244,7 @@ Scripts are located at `${CLAUDE_PLUGIN_ROOT}/skills/pumasi-exec/scripts/`.
 ```
 ${CLAUDE_PLUGIN_ROOT}/
 ├── commands/pumasi.md          # 라우터 커맨드
-├── skills/pumasi-exec/
+├── skills/pumasi/
 │   ├── SKILL.md                # 이 문서
 │   └── scripts/
 │       ├── pumasi.sh           # 진입점
@@ -265,5 +265,5 @@ which codex  # 설치 확인
 
 **yaml 의존성 필요**:
 ```bash
-cd ${CLAUDE_PLUGIN_ROOT}/skills/pumasi-exec && npm install yaml
+cd ${CLAUDE_PLUGIN_ROOT}/skills/pumasi && npm install yaml
 ```

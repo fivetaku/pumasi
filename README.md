@@ -57,7 +57,7 @@ which codex
 npm install -g @openai/codex
 
 # yaml 의존성 (최초 1회)
-cd <plugin-dir>/skills/pumasi-exec && npm install yaml
+cd <plugin-dir>/skills/pumasi && npm install yaml
 ```
 
 ---
@@ -112,7 +112,7 @@ Codex는 맥락을 추론하지 않으므로, 절대경로/함수 시그니처/i
 | 구성요소 | 설명 |
 |----------|------|
 | 커맨드 | `/pumasi` -- 메인 라우터 |
-| 스킬 | `pumasi-exec` -- 7단계 Codex 병렬 실행 워크플로우 |
+| 스킬 | `pumasi` -- 7단계 Codex 병렬 실행 워크플로우 |
 
 ---
 
