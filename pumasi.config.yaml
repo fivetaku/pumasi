@@ -1,0 +1,22 @@
+pumasi:
+  defaults:
+    command: "codex exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check"
+    emoji: "🤖"
+
+  tasks:
+    # Claude가 매 실행 전 이 섹션을 수정합니다.
+    # 예시:
+    #
+    # - name: backend-api
+    #   instruction: |
+    #     /absolute/path/에 다음 파일을 구현하세요.
+    #     ...
+    #   gates:
+    #     - name: "파일 존재"
+    #       command: "ls src/index.ts"
+    #     - name: "타입 체크"
+    #       command: "npx tsc --noEmit"
+    []
+
+  settings:
+    timeout: 3600

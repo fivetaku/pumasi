@@ -1,0 +1,20 @@
+{
+  "name": "pumasi",
+  "version": "0.1.0",
+  "description": "Parallel coding orchestration — Claude as PM, Codex CLI instances as parallel developers",
+  "author": {
+    "name": "chulrolee",
+    "url": "https://github.com/fivetaku"
+  },
+  "homepage": "https://github.com/fivetaku/pumasi",
+  "repository": "https://github.com/fivetaku/pumasi",
+  "license": "MIT",
+  "keywords": [
+    "codex",
+    "parallel",
+    "orchestration",
+    "pumasi",
+    "multi-agent",
+    "delegation"
+  ]
+}

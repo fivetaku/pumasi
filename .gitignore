@@ -1,0 +1,8 @@
+.DS_Store
+node_modules/
+__pycache__/
+.claude/*.local.md
+
+# Plugin-specific
+.jobs/
+context/
