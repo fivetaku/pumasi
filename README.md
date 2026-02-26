@@ -39,9 +39,11 @@ Claude가 PM/감독 역할을 맡고, Codex CLI 인스턴스를 병렬 외주 �
 
 ### 마켓플레이스에서 설치 (추천)
 ```
-/plugin marketplace add https://github.com/fivetaku/gptaku-plugins
+/plugin marketplace add https://github.com/fivetaku/gptaku_plugins.git
 /plugin install pumasi
 ```
+
+설치 후 Claude Code를 **재시작**하세요.
 
 ### 처음 시작하기
 ```
