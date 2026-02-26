@@ -37,13 +37,27 @@ Claude가 PM/감독 역할을 맡고, Codex CLI 인스턴스를 병렬 외주 �
 
 ## 설치 방법
 
-### 마켓플레이스에서 설치 (추천)
+### 1. 마켓플레이스 등록 (처음 한 번만)
+
 ```
 /plugin marketplace add https://github.com/fivetaku/gptaku_plugins.git
+```
+
+### 2. 플러그인 설치
+
+```
 /plugin install pumasi
 ```
 
-설치 후 Claude Code를 **재시작**하세요.
+### 3. 업데이트
+
+플러그인이 업데이트되면 아래 명령어로 최신 버전을 받을 수 있습니다:
+
+```
+/plugin update
+```
+
+> 설치/업데이트 후에는 Claude Code를 **재시작**하세요.
 
 ### 처음 시작하기
 ```
