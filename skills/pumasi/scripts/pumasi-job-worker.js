@@ -7,6 +7,8 @@ const path = require('path');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
 
+const OUTPUT_SCHEMA_PATH = path.join(__dirname, 'codex-output-schema.json');
+
 function exitWithError(message) {
   process.stderr.write(`${message}\n`);
   process.exit(1);
@@ -77,10 +79,10 @@ function main() {
   const timeoutSec = options.timeout ? Number(options.timeout) : 0;
   const cwd = options.cwd || process.cwd();
 
-  if (!jobDir) exitWithError('worker: missing --job-dir');
-  if (!member) exitWithError('worker: missing --member');
-  if (!safeMember) exitWithError('worker: missing --safe-member');
-  if (!command) exitWithError('worker: missing --command');
+  if (!jobDir) exitWithError('pumasi-worker: --job-dir is required. This worker should be spawned by pumasi-job.js, not called directly.');
+  if (!member) exitWithError('pumasi-worker: --member is required. Specify the task name.');
+  if (!safeMember) exitWithError('pumasi-worker: --safe-member is required. Specify the safe task name.');
+  if (!command) exitWithError('pumasi-worker: --command is required. Specify the codex command to execute.');
 
   const membersRoot = path.join(jobDir, 'members');
   const memberDir = path.join(membersRoot, safeMember);
@@ -88,17 +90,29 @@ function main() {
   const outPath = path.join(memberDir, 'output.txt');
   const errPath = path.join(memberDir, 'error.txt');
 
-  const promptPath = path.join(jobDir, 'prompt.txt');
-  const basePrompt = fs.existsSync(promptPath) ? fs.readFileSync(promptPath, 'utf8') : '';
-
   // 태스크별 instruction 읽기 + Codex 최적화 프롬프트 구성
   const jobJsonPath = path.join(jobDir, 'job.json');
-  let taskInstruction = '';
+  let jobMeta = null;
   let jobCwd = cwd;
-  if (fs.existsSync(jobJsonPath)) {
-    try {
-      const jobMeta = JSON.parse(fs.readFileSync(jobJsonPath, 'utf8'));
+  try {
+    if (fs.existsSync(jobJsonPath)) {
+      jobMeta = JSON.parse(fs.readFileSync(jobJsonPath, 'utf8'));
       if (jobMeta.cwd) jobCwd = jobMeta.cwd;
+    }
+  } catch { /* ignore */ }
+
+  // Check for redelegate prompt first (per-member override), then round-specific, then default
+  const redelegatePromptPath = path.join(memberDir, 'redelegate-prompt.txt');
+  const currentRound = jobMeta ? (jobMeta.currentRound || 1) : 1;
+  const roundPromptPath = path.join(jobDir, `prompt-round${currentRound}.txt`);
+  const defaultPromptPath = path.join(jobDir, 'prompt.txt');
+  const promptPath = fs.existsSync(redelegatePromptPath) ? redelegatePromptPath
+    : fs.existsSync(roundPromptPath) ? roundPromptPath
+    : defaultPromptPath;
+  const basePrompt = fs.existsSync(promptPath) ? fs.readFileSync(promptPath, 'utf8') : '';
+
+  let taskInstruction = '';
+  if (jobMeta) {
       const taskConfig = (jobMeta.tasks || []).find((t) => t.name === member);
       if (taskConfig && taskConfig.instruction) {
         // Codex 최적화: 명시적이고 구조화된 프롬프트
@@ -121,6 +135,28 @@ function main() {
           '- 함수/클래스 시그니처는 지시사항 그대로 구현',
           '- 지시된 라이브러리/패키지를 반드시 사용 (다른 라이브러리로 대체 금지)',
           '- 구현 완료 후 아래 "완료 보고 형식"에 맞춰 반드시 보고',
+          '',
+          '## 코드 스타일 (반드시 준수)',
+          '- **정확성 최우선**: 간결하게 작성하되 모든 엣지케이스의 동작이 반드시 올바라야 한다. 간결화로 인해 엣지케이스 처리가 달라지면 간결화를 포기하고 정확한 코드를 작성한다.',
+          '- **엣지케이스 명시 규칙**:',
+          '  - 문자열 절삭: 음수/0은 빈 문자열 반환. maxLength가 말줄임표(...) 길이 이하이면(<=3) 말줄임표 없이 원본을 잘라 반환. `const safe = Math.max(0, maxLength); if (safe <= 3) return text.slice(0, safe)`',
+          '  - 날짜 포맷: 명시된 포맷 옵션이 있으면 반드시 Intl.DateTimeFormat에 전달한다 (toLocaleDateString 기본값에 의존하지 않는다)',
+          '  - 범위 역전(min > max): 내부에서 swap하여 정상 처리한다 (무시하거나 원본 반환 금지)',
+          '- **TypeScript 타입 신뢰**: 파라미터에 타입이 있으면 런타임 typeof 체크 금지 (이미 타입시스템이 보장)',
+          '- **관용적 패턴 사용**: `Math.min(Math.max(val, min), max)` 같은 관용구가 있으면 if/else보다 우선 사용',
+          '- **불필요한 중간변수 금지**: `const isValid = pattern.test(x); if (!isValid)` → `if (!pattern.test(x))`',
+          '- **정규식은 함수 내부 인라인**: 모듈 상단 상수로 꺼내지 않음 (단일 사용처)',
+          '- **return 형식**: 객체 리터럴은 인라인 반환 (`return { valid: false, error: "..." }`)',
+        ];
+
+        // config에서 커스텀 스타일 규칙 주입
+        if (jobMeta.style) {
+          parts.push('');
+          parts.push('## 프로젝트 코드 스타일 (추가 규칙)');
+          parts.push(jobMeta.style);
+        }
+
+        parts.push(...[
           '',
           '## 기술스택 규칙',
           '- 패키지 버전은 지시사항에 명시된 버전을 우선 사용',
@@ -155,19 +191,26 @@ function main() {
           '',
           '---',
           '',
-        ];
+        ]);
         if (basePrompt) {
           parts.push('## 프로젝트 컨텍스트');
           parts.push('');
         }
         taskInstruction = parts.join('\n');
       }
-    } catch {
-      // ignore
-    }
   }
 
   const prompt = taskInstruction + basePrompt;
+
+  // DOE E06e: Codex hangs indefinitely on empty prompt
+  if (!prompt || !prompt.trim()) {
+    atomicWriteJson(statusPath, {
+      member, state: 'error',
+      message: 'Empty prompt: both task instruction and base prompt are empty',
+      finishedAt: new Date().toISOString(), command,
+    });
+    process.exit(1);
+  }
 
   const tokens = splitCommand(command);
   if (!tokens || tokens.length === 0) {
@@ -182,9 +225,18 @@ function main() {
   const program = tokens[0];
   const args = tokens.slice(1);
 
+  // DOE E08: Add --output-schema for structured JSON output
+  const reportPath = path.join(memberDir, 'report.json');
+  const schemaArgs = [];
+  if (fs.existsSync(OUTPUT_SCHEMA_PATH)) {
+    schemaArgs.push('--output-schema', OUTPUT_SCHEMA_PATH);
+    schemaArgs.push('-o', reportPath);
+  }
+
+  const startedAt = new Date().toISOString();
   atomicWriteJson(statusPath, {
     member, state: 'running',
-    startedAt: new Date().toISOString(),
+    startedAt,
     command, pid: null,
   });
 
@@ -193,7 +245,7 @@ function main() {
 
   let child;
   try {
-    child = spawn(program, [...args, prompt], {
+    child = spawn(program, [...args, ...schemaArgs, prompt], {
       stdio: ['ignore', 'pipe', 'pipe'],
       env: process.env,
       cwd: cwd,
@@ -237,6 +289,7 @@ function main() {
       member,
       state: isMissing ? 'missing_cli' : 'error',
       message: error && error.message ? error.message : 'Process error',
+      startedAt,
       finishedAt: new Date().toISOString(),
       command, exitCode: null, pid: child.pid,
     });
@@ -251,6 +304,7 @@ function main() {
       member,
       state: timedOut ? 'timed_out' : canceled ? 'canceled' : code === 0 ? 'done' : 'error',
       message: timedOut ? `Timed out after ${timeoutSec}s` : canceled ? 'Canceled' : null,
+      startedAt,
       finishedAt: new Date().toISOString(),
       command,
       exitCode: typeof code === 'number' ? code : null,

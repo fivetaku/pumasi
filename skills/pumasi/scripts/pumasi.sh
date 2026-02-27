@@ -57,7 +57,7 @@ if ! command -v node >/dev/null 2>&1; then
 fi
 
 case "$1" in
-  start|status|wait|results|stop|clean)
+  start|start-round|status|wait|results|stop|clean|gates|redelegate|autofix)
     exec "$JOB_SCRIPT" "$@"
     ;;
 esac
@@ -76,13 +76,29 @@ in_host_agent_context() {
   return 1
 }
 
+# Start round 1
 JOB_DIR="$("$JOB_SCRIPT" start "$@")"
 
+# Read max round from job.json
+MAX_ROUND="$(node -e '
+const fs=require("fs");
+const p=require("path").join(process.argv[1],"job.json");
+try{const d=JSON.parse(fs.readFileSync(p,"utf8"));process.stdout.write(String(d.maxRound||1));}catch{process.stdout.write("1");}
+' "$JOB_DIR")"
+
 if in_host_agent_context; then
-  exec "$JOB_SCRIPT" wait "$JOB_DIR"
+  # In agent context: simplified round loop
+  for ROUND in $(seq 1 "$MAX_ROUND"); do
+    if [ "$ROUND" -gt 1 ]; then
+      "$JOB_SCRIPT" start-round --round "$ROUND" "$JOB_DIR" >/dev/null
+    fi
+    exec_result="$("$JOB_SCRIPT" wait "$JOB_DIR")"
+  done
+  echo "$exec_result"
+  exit 0
 fi
 
-echo "pumasi: started ${JOB_DIR}" >&2
+echo "pumasi: started ${JOB_DIR} (${MAX_ROUND} rounds)" >&2
 
 cleanup_on_signal() {
   if [ -n "${JOB_DIR:-}" ] && [ -d "$JOB_DIR" ]; then
@@ -94,19 +110,70 @@ cleanup_on_signal() {
 
 trap cleanup_on_signal INT TERM
 
-while true; do
-  WAIT_JSON="$("$JOB_SCRIPT" wait "$JOB_DIR")"
-  OVERALL="$(printf '%s' "$WAIT_JSON" | node -e '
+CURRENT_ROUND=1
+while [ "$CURRENT_ROUND" -le "$MAX_ROUND" ]; do
+  if [ "$CURRENT_ROUND" -gt 1 ]; then
+    echo "pumasi: starting round ${CURRENT_ROUND}/${MAX_ROUND}" >&2
+    "$JOB_SCRIPT" start-round --round "$CURRENT_ROUND" "$JOB_DIR" >/dev/null
+  fi
+
+  # Wait for current round to complete
+  while true; do
+    WAIT_JSON="$("$JOB_SCRIPT" wait "$JOB_DIR")"
+    OVERALL="$(printf '%s' "$WAIT_JSON" | node -e '
 const fs=require("fs");
 const d=JSON.parse(fs.readFileSync(0,"utf8"));
 process.stdout.write(String(d.overallState||""));
 ')"
 
-  "$JOB_SCRIPT" status --text "$JOB_DIR" >&2
+    "$JOB_SCRIPT" status --text "$JOB_DIR" >&2
 
-  if [ "$OVERALL" = "done" ]; then
-    break
+    if [ "$OVERALL" = "done" ]; then
+      break
+    fi
+  done
+
+  # Run gates for this round
+  "$JOB_SCRIPT" gates "$JOB_DIR" >&2 || true
+
+  # Check if autofix is needed
+  GATES_HAVE_FAILURES="$(node -e '
+const fs=require("fs"),p=require("path");
+const jobDir=process.argv[1];
+const job=JSON.parse(fs.readFileSync(p.join(jobDir,"job.json"),"utf8"));
+const membersRoot=p.join(jobDir,"members");
+let hasFail=false;
+for(const t of(job.tasks||[])){
+  const sf=t.name.trim().toLowerCase().replace(/[^a-z0-9_-]+/g,"-")||"task";
+  const gp=p.join(membersRoot,sf,"gates.json");
+  try{const g=JSON.parse(fs.readFileSync(gp,"utf8"));if(g.status==="failed")hasFail=true;}catch{}
+}
+process.stdout.write(hasFail?"yes":"no");
+' "$JOB_DIR")"
+
+  if [ "$GATES_HAVE_FAILURES" = "yes" ]; then
+    echo "pumasi: gate failures detected, running autofix..." >&2
+    "$JOB_SCRIPT" autofix "$JOB_DIR" >&2 || true
+
+    # Wait for autofix tasks to complete
+    while true; do
+      WAIT_JSON="$("$JOB_SCRIPT" wait "$JOB_DIR")"
+      OVERALL="$(printf '%s' "$WAIT_JSON" | node -e '
+const fs=require("fs");
+const d=JSON.parse(fs.readFileSync(0,"utf8"));
+process.stdout.write(String(d.overallState||""));
+')"
+      "$JOB_SCRIPT" status --text "$JOB_DIR" >&2
+      if [ "$OVERALL" = "done" ]; then
+        break
+      fi
+    done
+
+    # Re-run gates after autofix
+    "$JOB_SCRIPT" gates "$JOB_DIR" >&2 || true
   fi
+
+  CURRENT_ROUND=$((CURRENT_ROUND + 1))
 done
 
 trap - INT TERM

@@ -90,15 +90,20 @@ Round 3: 최종 통합 (Claude 직접)
 
 ```yaml
 pumasi:
+  settings:
+    timeout: 3600
+    max_retries: 2        # 게이트 실패 시 자동 재시도 최대 횟수
+
   tasks:
+    # Round 1: 독립 모듈 (병렬)
     - name: token-utils
+      round: 1             # 라운드 번호 (기본값: 1)
       instruction: |
         다음 파일을 구현하세요: src/auth/token.ts
         요구사항:
         - JWT 토큰 생성 함수: generateToken(userId, role) → string
         - JWT 토큰 검증 함수: verifyToken(token) → {userId, role} | null
         완료 후 반드시 보고: 구현한 함수 시그니처, 주요 결정사항
-
       gates:
         - name: "파일 존재"
           command: "ls src/auth/token.ts"
@@ -106,6 +111,18 @@ pumasi:
           command: "npx tsc --noEmit src/auth/token.ts"
         - name: "함수 시그니처 확인"
           command: "grep -q 'generateToken' src/auth/token.ts && grep -q 'verifyToken' src/auth/token.ts"
+
+    # Round 2: Round 1 결과 사용 (이전 라운드 결과가 컨텍스트로 자동 주입)
+    - name: auth-middleware
+      round: 2
+      instruction: |
+        src/auth/token.ts의 verifyToken을 사용하는 미들웨어를 구현하세요.
+        파일: src/middleware/auth.ts
+      gates:
+        - name: "파일 존재"
+          command: "ls src/middleware/auth.ts"
+        - name: "import 확인"
+          command: "grep -q 'verifyToken' src/middleware/auth.ts"
 ```
 
 ### Phase 3: 실행 (Claude → Bash)
@@ -157,14 +174,31 @@ Step 3: 서브태스크 간 인터페이스 확인
 | DB/스키마 | 파일 존재, 테이블/컬럼 grep, 라이브러리 확인 |
 | 설정 파일 | 파일 존재, JSON 파싱 (node -e), 버전 grep |
 
-### Phase 6: 통합 및 수정 (Claude 판단 + Codex 재위임)
+### Phase 6: 자동 재위임 (Autofix)
 
-**수정이 필요한 경우**: Claude가 직접 고치지 않고 Codex에 재위임.
+게이트 실패 시 `autofix`가 자동으로 Codex에 재위임합니다. `pumasi.sh`의 one-shot 모드에서는 이 과정이 자동으로 실행됩니다.
 
 ```
-Claude가 하는 일: "뭘 고칠지" 결정 (구체적 수정 지시 작성)
-Codex가 하는 일: 실제 수정 실행
+Step 1: 게이트 실패 감지
+Step 2: 실패한 태스크에 수정 지시 자동 생성
+  └── 이전 출력 + 게이트 에러 + 수정 규칙을 컨텍스트로 주입
+Step 3: Codex 재실행 (최대 max_retries회)
+Step 4: 게이트 재실행으로 수정 확인
 ```
+
+**수동 재위임** (Claude가 직접 제어할 때):
+```bash
+# 특정 태스크만 수정 지시와 함께 재위임
+pumasi.sh redelegate --task <name> --correction "수정 지시" [JOB_DIR]
+
+# 게이트 실패한 모든 태스크 자동 재위임
+pumasi.sh autofix [JOB_DIR]
+```
+
+**재위임 동작:**
+- 이전 시도의 출력/게이트 결과를 컨텍스트로 주입
+- 이전 시도 파일은 `attempt-N/` 디렉토리에 보관
+- `max_retries` 초과 시 재시도 중단 (기본값: 2)
 
 **수정이 필요 없는 경우**: 서브태스크 간 연결만 확인 후 정리.
 
@@ -216,7 +250,11 @@ DON'T (금지):
 ```bash
 # 시작
 pumasi.sh start [--config path] "프로젝트 컨텍스트"
+pumasi.sh start --round 1 "컨텍스트"       # 특정 라운드만 시작
 pumasi.sh start --json "컨텍스트"
+
+# 라운드 제어
+pumasi.sh start-round --round N [JOB_DIR]  # 기존 Job에서 N라운드 시작
 
 # 상태 확인
 pumasi.sh status [JOB_DIR]
@@ -229,6 +267,13 @@ pumasi.sh wait [JOB_DIR]
 # 결과
 pumasi.sh results [JOB_DIR]
 pumasi.sh results --json [JOB_DIR]
+
+# 게이트 실행
+pumasi.sh gates [JOB_DIR]
+
+# 재위임
+pumasi.sh redelegate --task <name> [--correction "수정지시"] [JOB_DIR]
+pumasi.sh autofix [JOB_DIR]                # 게이트 실패 태스크 자동 재위임
 
 # 관리
 pumasi.sh stop [JOB_DIR]
@@ -243,16 +288,31 @@ Scripts are located at `${CLAUDE_PLUGIN_ROOT}/skills/pumasi/scripts/`.
 
 ```
 ${CLAUDE_PLUGIN_ROOT}/
-├── commands/pumasi.md          # 라우터 커맨드
+├── commands/pumasi.md            # 라우터 커맨드
 ├── skills/pumasi/
-│   ├── SKILL.md                # 이 문서
+│   ├── SKILL.md                  # 이 문서
+│   ├── package.json              # yaml 의존성
 │   └── scripts/
-│       ├── pumasi.sh           # 진입점
-│       ├── pumasi-job.sh       # Node.js 래퍼
-│       ├── pumasi-job.js       # 오케스트레이터
-│       └── pumasi-job-worker.js # Codex 워커 (detached)
-├── pumasi.config.yaml          # 작업 목록 (매 실행 전 수정)
-└── .jobs/                      # 실행 결과 (런타임 생성)
+│       ├── pumasi.sh             # 진입점 (라운드 루프 + autofix)
+│       ├── pumasi-job.sh         # Node.js 래퍼
+│       ├── pumasi-job.js         # 오케스트레이터 (1200+ LOC)
+│       ├── pumasi-job-worker.js  # Codex 워커 (detached)
+│       └── codex-output-schema.json # 구조화 출력 스키마
+├── pumasi.config.yaml            # 작업 목록 (매 실행 전 수정)
+└── .jobs/                        # 실행 결과 (런타임 생성)
+    └── pumasi-<jobId>/
+        ├── job.json              # Job 메타 (tasks, rounds, settings)
+        ├── prompt.txt            # 기본 프롬프트
+        ├── prompt-roundN.txt     # 라운드별 프롬프트 (이전 결과 포함)
+        └── members/<task>/
+            ├── status.json       # 태스크 상태
+            ├── output.txt        # Codex 출력
+            ├── error.txt         # Codex stderr
+            ├── report.json       # 구조화 보고서 (--output-schema)
+            ├── gates.json        # 게이트 결과
+            ├── redelegate-prompt.txt  # 재위임 프롬프트
+            ├── retry_count       # 재시도 횟수
+            └── attempt-N/        # 이전 시도 아카이브
 ```
 
 ## 주의사항
