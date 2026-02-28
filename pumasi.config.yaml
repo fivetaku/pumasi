@@ -1,144 +1,110 @@
 pumasi:
   defaults:
-    command: "codex exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check --ephemeral"
+    command: "codex exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check"
     emoji: "🤖"
 
-  settings:
-    timeout: 120
-    max_retries: 1
-
+  # 예시: 인증 시스템 (시그니처 + 요구사항 패턴)
+  # 실제 사용 시 이 tasks 섹션을 프로젝트에 맞게 수정하세요.
   tasks:
-    # ============================================
-    # Round 1: 3가지 instruction 스타일 비교
-    # ============================================
-
-    # Style A: 최소 지시 (Minimal)
-    - name: string-utils
-      round: 1
+    - name: auth-token
       instruction: |
-        Create src/string-utils.ts with these functions:
-        - formatDate: takes Date and FormatOptions, returns formatted string
-        - slugify: takes string, returns URL-safe slug
-        - truncate: takes string and maxLength number, returns truncated string with "..."
-        Use the types from src/types.ts (FormatOptions).
-        Do not create any other files.
-      cwd: /tmp/pumasi-test-workspace
+        src/auth/token.ts를 구현하세요.
+
+        ## 시그니처
+        export function generateToken(userId: string, role: 'admin' | 'user'): string
+        export function verifyToken(token: string): { userId: string; role: string } | null
+
+        ## 요구사항
+        - jsonwebtoken 라이브러리 사용 (다른 JWT 라이브러리 사용 금지)
+        - 필수 import: import jwt from 'jsonwebtoken'
+        - 만료 시간: 7일
+        - secret: process.env.JWT_SECRET
+        - verifyToken은 만료/무효 토큰에 null 반환 (throw 금지)
+
+        ## 제약사항
+        - TypeScript strict mode
+        - ESM (import/export)
+
       gates:
         - name: "파일 존재"
-          command: "test -f /tmp/pumasi-test-workspace/src/string-utils.ts"
-        - name: "formatDate 함수"
-          command: "grep -q 'formatDate' /tmp/pumasi-test-workspace/src/string-utils.ts"
-        - name: "slugify 함수"
-          command: "grep -q 'slugify' /tmp/pumasi-test-workspace/src/string-utils.ts"
-        - name: "truncate 함수"
-          command: "grep -q 'truncate' /tmp/pumasi-test-workspace/src/string-utils.ts"
-        - name: "types import"
-          command: "grep -q 'FormatOptions' /tmp/pumasi-test-workspace/src/string-utils.ts"
+          command: "[ -f src/auth/token.ts ]"
+        - name: "타입 체크"
+          command: "npx tsc --noEmit src/auth/token.ts"
+        - name: "jsonwebtoken 사용"
+          command: "grep -q 'jsonwebtoken' src/auth/token.ts"
+        - name: "시그니처 확인"
+          command: "grep -q 'generateToken' src/auth/token.ts && grep -q 'verifyToken' src/auth/token.ts"
 
-    # Style B: 구조화 템플릿 (Structured)
-    - name: validation-utils
-      round: 1
+    - name: auth-password
       instruction: |
-        # 작업 지시서: validation-utils
+        src/auth/password.ts를 구현하세요.
 
-        ## 생성 파일
-        - src/validation-utils.ts (이 파일만 생성, 다른 파일 금지)
+        ## 시그니처
+        export function hashPassword(plain: string): Promise<string>
+        export function comparePassword(plain: string, hash: string): Promise<boolean>
 
-        ## 참조 파일
-        - src/types.ts (ValidationResult 타입 사용)
+        ## 요구사항
+        - bcrypt 라이브러리 사용 (다른 해싱 라이브러리 금지)
+        - 필수 import: import bcrypt from 'bcrypt'
+        - salt rounds: 12
+        - hashPassword는 bcrypt.hash로 해싱
+        - comparePassword는 bcrypt.compare로 비교
 
-        ## 구현 시그니처
-        ```typescript
-        import { ValidationResult } from './types';
+        ## 제약사항
+        - TypeScript strict mode
+        - ESM (import/export)
+        - async/await 사용
 
-        export function validateEmail(email: string): ValidationResult
-        export function validatePhone(phone: string): ValidationResult
-        export function validateUrl(url: string): ValidationResult
-        ```
-
-        ## 구현 세부사항
-        - validateEmail: RFC 5322 기본 패턴 (/^[^\s@]+@[^\s@]+\.[^\s@]+$/)
-        - validatePhone: 한국 전화번호 패턴 (010-XXXX-XXXX 또는 01X-XXX-XXXX)
-        - validateUrl: URL 생성자 기반 검증 (new URL())
-        - 실패 시 error 필드에 구체적 메시지 포함
-
-        ## 금지사항
-        - 외부 라이브러리 사용 금지 (순수 TypeScript만)
-        - 다른 파일 생성 금지
-      cwd: /tmp/pumasi-test-workspace
       gates:
         - name: "파일 존재"
-          command: "test -f /tmp/pumasi-test-workspace/src/validation-utils.ts"
-        - name: "validateEmail export"
-          command: "grep -q 'export function validateEmail' /tmp/pumasi-test-workspace/src/validation-utils.ts"
-        - name: "validatePhone export"
-          command: "grep -q 'export function validatePhone' /tmp/pumasi-test-workspace/src/validation-utils.ts"
-        - name: "validateUrl export"
-          command: "grep -q 'export function validateUrl' /tmp/pumasi-test-workspace/src/validation-utils.ts"
-        - name: "ValidationResult import"
-          command: "grep -q 'ValidationResult' /tmp/pumasi-test-workspace/src/validation-utils.ts"
-        - name: "외부 라이브러리 미사용"
-          command: "! grep -q 'require(' /tmp/pumasi-test-workspace/src/validation-utils.ts"
+          command: "[ -f src/auth/password.ts ]"
+        - name: "타입 체크"
+          command: "npx tsc --noEmit src/auth/password.ts"
+        - name: "bcrypt 사용"
+          command: "grep -q 'bcrypt' src/auth/password.ts"
+        - name: "시그니처 확인"
+          command: "grep -q 'hashPassword' src/auth/password.ts && grep -q 'comparePassword' src/auth/password.ts"
 
-    # Style C: 대화체 (Conversational)
-    - name: math-utils
-      round: 1
+    - name: user-model
       instruction: |
-        수학 유틸리티 함수들을 만들어줘. 파일은 src/math-utils.ts에 만들면 돼.
-        src/types.ts에 MathRange라는 타입이 있는데, min과 max가 있어. 그걸 활용해줘.
+        src/models/user.ts를 구현하세요.
 
-        필요한 함수는 세 개야:
-        1. clamp - 숫자를 min/max 범위 안으로 제한하는 거. MathRange를 받아서 처리하면 좋겠어.
-        2. lerp - 선형 보간. 두 숫자 사이를 t(0~1)로 보간하는 거야.
-        3. randomBetween - MathRange 받아서 그 범위 안에서 랜덤 숫자 반환.
+        ## 타입 정의
+        interface User {
+          id: string
+          email: string
+          passwordHash: string
+          role: 'admin' | 'user'
+          createdAt: string
+          updatedAt: string
+        }
 
-        다른 파일은 만들지 말고, 외부 라이브러리도 쓰지 마.
-      cwd: /tmp/pumasi-test-workspace
+        ## 시그니처
+        export function createUser(email: string, passwordHash: string, role?: 'admin' | 'user'): User
+        export function findUserByEmail(email: string): User | null
+        export function findUserById(id: string): User | null
+
+        ## 요구사항
+        - better-sqlite3로 SQLite DB 사용 (JSON 파일/fs 사용 절대 금지)
+        - 필수 import: import Database from 'better-sqlite3'
+        - DB 파일 경로: ./data/users.db
+        - id는 crypto.randomUUID()로 생성
+        - users 테이블 자동 생성 (CREATE TABLE IF NOT EXISTS)
+        - createdAt/updatedAt은 ISO 8601 문자열
+
+        ## 제약사항
+        - TypeScript strict mode
+        - ESM (import/export)
+
       gates:
         - name: "파일 존재"
-          command: "test -f /tmp/pumasi-test-workspace/src/math-utils.ts"
-        - name: "clamp 함수"
-          command: "grep -q 'clamp' /tmp/pumasi-test-workspace/src/math-utils.ts"
-        - name: "lerp 함수"
-          command: "grep -q 'lerp' /tmp/pumasi-test-workspace/src/math-utils.ts"
-        - name: "randomBetween 함수"
-          command: "grep -q 'randomBetween' /tmp/pumasi-test-workspace/src/math-utils.ts"
-        - name: "MathRange import"
-          command: "grep -q 'MathRange' /tmp/pumasi-test-workspace/src/math-utils.ts"
+          command: "[ -f src/models/user.ts ]"
+        - name: "타입 체크"
+          command: "npx tsc --noEmit src/models/user.ts"
+        - name: "better-sqlite3 사용"
+          command: "grep -q 'better-sqlite3' src/models/user.ts && ! grep -q 'readFileSync' src/models/user.ts"
+        - name: "시그니처 확인"
+          command: "grep -q 'createUser' src/models/user.ts && grep -q 'findUserByEmail' src/models/user.ts"
 
-    # ============================================
-    # Round 2: Round 1 결과를 사용하는 통합 모듈
-    # ============================================
-    - name: index-barrel
-      round: 2
-      instruction: |
-        # 작업 지시서: index-barrel
-
-        ## 생성 파일
-        - src/index.ts (이 파일만 생성)
-
-        ## 구현 내용
-        Round 1에서 생성된 모듈들을 re-export하는 barrel 파일을 만드세요:
-
-        ```typescript
-        export { formatDate, slugify, truncate } from './string-utils';
-        export { validateEmail, validatePhone, validateUrl } from './validation-utils';
-        export { clamp, lerp, randomBetween } from './math-utils';
-        export type { FormatOptions, ValidationResult, MathRange } from './types';
-        ```
-
-        위 내용을 정확히 그대로 작성하세요.
-
-        ## 금지사항
-        - 다른 파일 생성 금지
-        - 위 코드 외 추가 코드 금지
-      cwd: /tmp/pumasi-test-workspace
-      gates:
-        - name: "파일 존재"
-          command: "test -f /tmp/pumasi-test-workspace/src/index.ts"
-        - name: "string-utils re-export"
-          command: "grep -q 'string-utils' /tmp/pumasi-test-workspace/src/index.ts"
-        - name: "validation-utils re-export"
-          command: "grep -q 'validation-utils' /tmp/pumasi-test-workspace/src/index.ts"
-        - name: "math-utils re-export"
-          command: "grep -q 'math-utils' /tmp/pumasi-test-workspace/src/index.ts"
+  settings:
+    timeout: 3600

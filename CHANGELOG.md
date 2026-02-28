@@ -1,5 +1,30 @@
 # Changelog
 
+## [1.2.0] - 2026-02-28
+
+### Changed
+- SKILL.md 전면 개정: "복붙형 instruction" 안티패턴 근절
+  - Claude는 시그니처 + 요구사항만 작성, 함수 body 작성 금지
+  - Codex가 실제 구현자로 동작하도록 역할 분리 명확화
+- pumasi.config.yaml 예시를 시그니처 패턴으로 전면 교체
+  - 이전: 전체 코드 블록 포함된 테스트용 config
+  - 이후: auth-token, auth-password, user-model 시그니처 예시
+- 게이트 설계 원칙 변경: ls/grep 중심 → tsc/build/test 중심
+
+### Added
+- 안티패턴 경고 섹션 (SKILL.md 최상단)
+- Claude vs Codex 역할 분리 표 (제공 vs 금지 명확화)
+- 게이트 셸 호환성 가이드: `test -f` → `[ -f ]` POSIX 브래킷 문법
+- Phase 5에 Step 0 "의존성 확인" 단계 추가 (npm install 후 게이트 실행)
+- 작업 규모별 분기 가이드 (1-2개: Claude 직접, 5+: 품앗이 권장)
+- instruction 자기 점검 체크리스트 (코드 블록/복붙 패턴 감지)
+- 좋은 instruction vs 나쁜 instruction 비교 예시
+
+### Removed
+- "import 문과 초기화 코드까지 직접 작성해서 제공" 가이드 삭제
+- better-sqlite3 "좋은 instruction" 예시 (전체 코드 제공 패턴) 삭제
+- 기본 Codex 명령어의 `--ephemeral` 플래그 제거
+
 ## [1.1.0] - 2026-02-27
 
 ### Added
