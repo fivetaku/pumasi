@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.3.0] - 2026-02-28
+
+### Added
+- Phase 5.5: `/simplify` 코드 정리 단계 (게이트 PASS 후, 통합 전)
+  - 병렬 에이전트가 코드 품질/컨벤션을 자동 점검
+  - Claude PM 토큰을 거의 사용하지 않으면서 Codex 코드 품질 보완
+  - `/simplify` 후 게이트 재실행으로 기능 보존 확인
+- `/batch`와의 관계 가이드 섹션
+  - 품앗이(Greenfield) vs /batch(Brownfield) 포지셔닝 명확화
+  - 작업 유형별 도구 선택 가이드
+
 ## [1.2.0] - 2026-02-28
 
 ### Changed
