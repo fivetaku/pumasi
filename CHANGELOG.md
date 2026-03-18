@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.5.1] - 2026-03-18
+
+### Fixed
+- pumasi-job.js에서 --ephemeral 플래그 잔존 제거 (v1.2.0에서 config는 제거했으나 스크립트는 누락)
+- SKILL.md DRY 정리: instruction 규칙 중복 축약 (역할 분리 섹션 참조)
+
+## [1.5.0] - 2026-03-17
+
+### Changed
+- 크로스 플랫폼 호환성 (Windows .cmd 스크립트 추가)
+- Codex CLI 플래그 업데이트: config의 기본 명령어에서 --ephemeral 제거
+
+## [1.4.0] - 2026-03-10
+
+### Changed
+- SKILL.md EXECUTE 키워드 적용 — 도구 호출 보장 강화
+
 ## [1.3.1] - 2026-03-02
 
 ### Fixed

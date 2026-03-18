@@ -19,7 +19,7 @@ const WORKER_PATH = path.join(SCRIPT_DIR, 'pumasi-job-worker.js');
 const SKILL_CONFIG_FILE = path.join(SKILL_DIR, 'pumasi.config.yaml');
 const REPO_CONFIG_FILE = path.join(path.resolve(SKILL_DIR, '../..'), 'pumasi.config.yaml');
 
-const DEFAULT_CODEX_COMMAND = 'codex exec --dangerously-bypass-approvals-and-sandbox --ephemeral';
+const DEFAULT_CODEX_COMMAND = 'codex exec --dangerously-bypass-approvals-and-sandbox';
 const DEFAULT_TIMEOUT_SEC = 3600;
 
 function killProcess(pid) {

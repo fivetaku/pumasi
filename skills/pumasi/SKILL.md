@@ -468,26 +468,12 @@ ${CLAUDE_PLUGIN_ROOT}/scripts/pumasi.sh clean [JOB_DIR]
 
 ### Codex에게 효과적인 instruction 규칙
 
-```
-✅ DO (Claude가 instruction에 포함할 것):
+위 "Claude vs Codex 역할 분리" 섹션의 제공/금지 목록을 따른다. 추가로:
 - 절대 경로로 파일 위치 명시
-- 함수/클래스 시그니처 (body 없이)
-- 타입/인터페이스 정의
-- 사용할 라이브러리명 + 필수 import 1줄
-- 자연어 요구사항 (구체적으로)
-- 금지사항 (다른 라이브러리 대체 금지 등)
-- 생성할 파일 목록
-- 코딩 스타일 (ESM/CJS, strict mode 등)
-
-❌ DON'T (Claude가 instruction에 포함하지 말 것):
-- 함수/컴포넌트의 본문(body) 코드
-- JSX/HTML 렌더링 마크업
-- 비즈니스 로직 구현 코드
-- CSS/스타일 구현 코드
-- "위 코드를 그대로 작성하세요" 지시
-- 10줄 이상의 코드 블록
-- 설정 파일 전체 내용 (핵심 설정값만 전달)
-```
+- 생성할 파일 목록 명시
+- 코딩 스타일 (ESM/CJS, strict mode 등) 명시
+- 10줄 이상의 코드 블록 금지
+- 설정 파일 전체 내용 대신 핵심 설정값만 전달
 
 ---
 
