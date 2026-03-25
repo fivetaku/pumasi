@@ -6,32 +6,7 @@ description: Claude가 큰 그림을 설계하고 Codex를 병렬 외주 개발�
 # 품앗이 (Pumasi) — Codex 병렬 외주 개발
 
 > 품앗이: 서로 협력하며 일을 나눠 하는 한국 전통 방식
-> Claude = 설계/감독 | Codex × N = 병렬 구현자
-
-## 개념
-
-```
-┌─────────────────────────────────────────────────────────┐
-│              Claude Code (설계/감독/PM)                   │
-│  1. 요구사항 분석 → 기획 → 독립 서브태스크 분해           │
-│  2. 시그니처 + 요구사항 + 게이트 작성                     │
-│  3. pumasi.sh 실행 → Codex 병렬 스폰                     │
-│  4. 게이트 검증 → 통합                                   │
-└─────────────────────────────────────────────────────────┘
-                          │
-        ┌─────────────────┼─────────────────┐
-        ▼                 ▼                 ▼
-  ┌──────────┐     ┌──────────┐     ┌──────────┐
-  │ Codex #1 │     │ Codex #2 │     │ Codex #3 │
-  │ 시그니처  │     │ 시그니처  │     │ 시그니처  │
-  │ 기반 구현 │     │ 기반 구현 │     │ 기반 구현 │
-  └──────────┘     └──────────┘     └──────────┘
-        │                 │                 │
-        └─────────────────┴─────────────────┘
-                          │
-                          ▼
-              게이트 검증 → 통합 → 완성
-```
+> Claude = 설계/감독 | Codex x N = 병렬 구현자
 
 ## 핵심 가치
 
@@ -47,235 +22,159 @@ description: Claude가 큰 그림을 설계하고 Codex를 병렬 외주 개발�
 
 ---
 
-## 안티패턴 및 역할 분리
+## CRITICAL: 안티패턴 — 복붙형 instruction (절대 금지)
 
-> **instruction 작성 전 반드시 Read**:
-> - `${CLAUDE_PLUGIN_ROOT}/skills/pumasi/references/anti-patterns.md` — 복붙형 instruction 절대 금지 규칙
-> - `${CLAUDE_PLUGIN_ROOT}/skills/pumasi/references/role-separation.md` — Claude vs Codex 역할 경계, 경계선 예시
+> **이 섹션은 품앗이의 가장 중요한 규칙이다. 반드시 숙지하라.**
 
-**핵심 원칙 요약**: Claude는 시그니처+요구사항만 작성. 코드 본문(body)은 절대 작성 금지. 강한 게이트(tsc/build/test)로 검증.
+다음 패턴이 발견되면 품앗이의 가치가 완전히 사라진다:
+
+```
+NEVER DO:
+- instruction에 완성된 함수/컴포넌트 코드 블록 포함
+- "위 코드를 그대로 작성하세요" 패턴
+- Claude가 구현을 다 한 후 Codex에게 파일 저장만 시키는 것
+- JSX/HTML 마크업을 instruction에 직접 작성
+- 비즈니스 로직을 코드로 제공
+```
+
+**왜 이런 실수가 발생하는가?**
+1. Claude(LLM)는 "과잉 친절" 성향이 있어 코드를 끝까지 완성하려 함
+2. "모든 것을 명시하라"를 "구현까지 다 써라"로 오해
+3. 게이트가 약하면(ls/grep만) Claude가 불안해서 코드를 다 써버림
+4. **해결: 시그니처+요구사항만 작성하고, 강한 게이트(tsc/build/test)로 검증**
+
+---
+
+## Claude vs Codex 역할 분리 (핵심 경계)
+
+### Claude가 제공하는 것 (instruction에 포함)
+
+```
+OK: 타입/인터페이스 정의 (body 없이)
+OK: 함수/클래스 시그니처 (body 없이)
+OK: 요구사항 (자연어, 구체적)
+OK: 제약사항 (라이브러리명, 스타일 규칙, 금지사항)
+OK: 필수 import 라인 (1~2줄)
+OK: 데이터 모델/스키마 정의
+OK: 기존 코드 참조 경로 (reference_files)
+OK: 프로젝트 컨텍스트
+```
+
+### Codex가 구현하는 것 (Claude가 작성 금지)
+
+```
+NEVER: 함수/메서드 본문 (body)
+NEVER: 컴포넌트 렌더링 로직 (JSX/HTML)
+NEVER: 비즈니스 로직 구현
+NEVER: CSS/스타일 코드
+NEVER: 이벤트 핸들러 구현
+NEVER: API 호출 로직
+NEVER: 데이터 변환/처리 로직
+```
+
+### 경계선 예시
+
+```
+Claude가 주는 것:
+  export function generateToken(userId: string, role: string): string
+  - jsonwebtoken 사용 (필수 import: import jwt from 'jsonwebtoken')
+  - 만료: 7일, secret: process.env.JWT_SECRET
+
+Codex가 구현하는 것:
+  export function generateToken(userId: string, role: string): string {
+    return jwt.sign({ userId, role }, process.env.JWT_SECRET!, { expiresIn: '7d' })
+  }
+```
+
+Claude는 **위쪽만** 작성한다. 아래쪽은 Codex가 채운다.
 
 ---
 
 ## 트리거 조건
 
 ```
-명시적 트리거:
-- "/pumasi [작업]"
-- "품앗이로 [작업]해줘"
-- "품앗이 켜줘"
-- "codex 외주로 [작업]"
-- "codex한테 [작업] 시켜"
-
-자동 감지 (대규모 코딩 요청 시):
-- 4개 이상의 독립 파일/모듈 동시 작성 요청
-- "전체 [기능] 구현해줘" + 규모가 큰 경우
-- 여러 컴포넌트/서비스를 한 번에 만들어야 할 때
+명시적: "/pumasi", "품앗이로", "품앗이 켜줘", "codex 외주로", "codex한테 시켜"
+자동 감지: 4개+ 독립 파일/모듈 동시 작성 요청
 ```
 
-### 작업 규모별 분기 (중요)
+### 작업 규모별 분기
 
 | 규모 | 권장 방식 | 이유 |
 |------|----------|------|
-| 태스크 1~2개 | **Claude 직접 코딩** | 품앗이 오버헤드가 더 큼 |
-| 태스크 3~4개 | **품앗이 사용 가능** | 병렬 이득이 오버헤드와 비슷 |
-| 태스크 5개+ | **품앗이 강력 권장** | 병렬 이득이 확실히 큼 |
+| 1~2개 | **Claude 직접 코딩** | 품앗이 오버헤드가 더 큼 |
+| 3~4개 | **품앗이 사용 가능** | 병렬 이득 = 오버헤드 |
+| 5개+ | **품앗이 강력 권장** | 병렬 이득이 확실히 큼 |
 
-**또한 다음 경우에는 품앗이를 사용하지 않는다:**
-- 기존 코드 수정/버그 수정 (컨텍스트 주입이 과도해짐)
+**품앗이를 사용하지 않는 경우:**
+- 기존 코드 수정/버그 수정 (컨텍스트 주입 과도)
 - 단일 파일 작업 (병렬 이점 없음)
 - 게이트를 만들 수 없는 작업 (UI 미세 조정 등)
 
 ### /batch와의 관계
 
-품앗이와 `/batch`는 목적이 다르다. 상호 보완적이며, 대체 관계가 아니다.
-
 | | 품앗이 (Pumasi) | /batch |
 |--|----------------|--------|
 | **목적** | 독립 모듈 N개 동시 구현 (Greenfield) | 동일 패턴을 N개 파일에 반복 적용 (Brownfield) |
 | **워커** | Codex CLI (Codex 토큰) | Claude 에이전트 (Claude 토큰) |
-| **격리** | 동일 워킹 디렉토리 | git worktree별 완전 격리 |
-| **적합한 작업** | 인증 + DB + API 각각 만들기 | jest→vitest 마이그레이션, CSS→Tailwind 변환 |
 
-### 품앗이 모드 진입 시 Claude의 행동 변화
-
-```
-일반 모드:          품앗이 모드:
-Claude가 직접 코딩  Claude가 시그니처+요구사항 작성
-                   → pumasi.sh 실행 → Codex가 구현
-                   → 게이트 자동 검증 → 통합
-```
+- "3개 독립 모듈" → **품앗이**
+- "프로젝트 전체 A→B 변환" → **/batch**
+- 조합: **품앗이 + /simplify + /batch**
 
 ---
 
 ## 7단계 워크플로우
 
 ### Phase 0: 기획 (Claude as PM)
-
-사용자 요청을 분석하여 **완성도 있는 기획안**을 작성. 기획 체크리스트 통과 후 사용자 승인을 받는다.
-
-**기획 체크리스트** (태스크 분해 전 반드시 확인):
-
-```
-□ 이 앱/기능의 핵심 사용 시나리오는?
-□ 경쟁 제품/일반적 기대치 대비 빠진 기능은?
-□ 데이터 모델에 필요한 필드가 충분한가?
-□ UX 관점: 검색, 정렬, 필터, 벌크 작업이 필요한가?
-□ 비기능 요구사항: 반응형, 다크모드, 접근성은?
-□ 태스크 수가 4개 이상인가? (아니면 Claude 직접 코딩)
-```
-
-**데이터 모델 설계 원칙**: 타입/인터페이스는 Claude가 설계. 구현 로직은 Codex가 작성.
+사용자 요청을 분석하여 완성도 있는 기획안 작성. 사용자 승인 후 진행.
+> 상세: `Read references/pm-workflow.md`
 
 ### Phase 1: 분석 (Claude)
-
-요청을 받으면 **독립적으로 병렬 실행 가능한** 서브태스크로 분해.
-
-**좋은 서브태스크 조건**:
-- 다른 서브태스크 완료를 기다리지 않아도 됨
-- 명확한 입출력(시그니처) 정의 가능
-- Codex 혼자 구현 가능한 범위
-- 파일/기능 경계가 명확함
+독립적으로 병렬 실행 가능한 서브태스크로 분해.
+> 상세: `Read references/task-patterns.md`
 
 ### Phase 2: 설정 (Claude)
+`pumasi.config.yaml`의 `tasks:` 섹션 수정. 시그니처+요구사항만 작성.
+> 상세: `Read references/codex-templates.md`
 
-`pumasi.config.yaml`의 `tasks:` 섹션을 수정.
-
-> **instruction 작성 전 반드시 Read**:
-> - `${CLAUDE_PLUGIN_ROOT}/skills/pumasi/references/codex-guide.md` — Codex 특성, DO/DON'T 규칙, 라이브러리 대체 방지
-> - `${CLAUDE_PLUGIN_ROOT}/skills/pumasi/references/instruction-templates.md` — 템플릿, 좋은/나쁜 예시, 자기 점검 체크리스트
-> - `${CLAUDE_PLUGIN_ROOT}/skills/pumasi/references/tech-stack.md` — 2025-2026 기준 모던 스택 추천표
-
-**instruction 작성 시 반드시 지킬 것:**
-1. 시그니처와 요구사항만 작성 (코드 본문 작성 금지)
-2. 강한 게이트 설정 (tsc/build/test 중심)
-3. 제약사항 명확히 (라이브러리, 스타일, 금지사항)
-
-### Phase 3: 실행 (Claude → Bash)
-
+### Phase 3: 실행 (Claude -> Bash)
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/scripts/pumasi.sh start "프로젝트 개요: [간단한 설명]"
 ```
 
 ### Phase 4: 모니터링 (Claude)
-
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/scripts/pumasi.sh wait [JOB_DIR]
 ```
 
-### Phase 5: 게이트 검증 + 선택적 코드 리뷰 (Claude)
-
+### Phase 5: 게이트 검증 (Claude)
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/scripts/pumasi.sh results [JOB_DIR]
 ```
+> 게이트 설계 상세: `Read references/gate-examples.md`
 
-**4단계 검증 프로세스:**
+### Phase 5.5: 코드 정리 (선택적)
+게이트 전부 PASS + 태스크 3개 이상일 때 `/simplify` 실행 권장.
+- `/simplify` 후 게이트를 한 번 더 실행하여 기능 보존 확인
+- 2개 이하 소규모 태스크에서는 스킵
 
-```
-Step 0: 의존성 확인 (게이트 실행 전 필수)
-  └── node_modules가 없으면: cd [프로젝트] && npm install --silent
-  └── tsc/build/test 게이트는 의존성 설치 후에만 유효
-
-Step 1: 자동 게이트 실행 (bash, 토큰 0)
-  └── tsc --noEmit → npm run build → npm test → grep 확인
-
-Step 2: 결과 판정
-  ├── 전부 통과 → Codex 보고서만 읽기 (토큰 소량)
-  └── 실패 있음 → 실패한 게이트 관련 코드만 읽기 (토큰 최소화)
-
-Step 3: 서브태스크 간 인터페이스 확인
-  └── 타입/import 경로 등 교차 검증
-```
-
-### Phase 5.5: 코드 정리 (선택적, /simplify 활용)
-
-> 게이트가 모두 통과했지만 코드 품질을 한 단계 높이고 싶을 때 사용.
-
-**조건**: Phase 5 게이트 전부 PASS + 태스크 3개 이상일 때 권장
-
-```
-Phase 5 게이트 PASS → /simplify 실행 → 게이트 재실행 → Phase 6 통합
-```
-
-### Phase 6: 통합 및 수정 (Claude 판단 + Codex 재위임)
-
-**수정이 필요한 경우**: Claude가 직접 고치지 않고 Codex에 재위임.
-
-```
-Claude가 하는 일: "뭘 고칠지" 결정 (자연어 수정 지시)
-Codex가 하는 일: 실제 수정 실행
-```
-
-**수정이 필요 없는 경우**: 서브태스크 간 연결만 확인 후 정리.
+### Phase 6: 통합 및 수정
+- 수정 필요 시: Claude가 **직접 고치지 않고** Codex에 재위임
+- 수정 불필요 시: 서브태스크 간 연결 확인 후 정리
 
 ```bash
 ${CLAUDE_PLUGIN_ROOT}/scripts/pumasi.sh clean [JOB_DIR]
 ```
 
-> **실행 예시 참고**: `${CLAUDE_PLUGIN_ROOT}/skills/pumasi/references/examples.md`
+> 스크립트 커맨드 전체: `Read references/script-guide.md`
 
 ---
 
-## 커맨드 레퍼런스
-
-```bash
-# 시작
-pumasi.sh start [--config path] "프로젝트 컨텍스트"
-pumasi.sh start --json "컨텍스트"
-
-# 상태 확인
-pumasi.sh status [JOB_DIR]          # JSON
-pumasi.sh status --text [JOB_DIR]   # 한 줄 요약
-pumasi.sh status --checklist [JOB_DIR]
-
-# 대기
-pumasi.sh wait [JOB_DIR]
-
-# 결과
-pumasi.sh results [JOB_DIR]
-pumasi.sh results --json [JOB_DIR]
-
-# 관리
-pumasi.sh stop [JOB_DIR]
-pumasi.sh clean [JOB_DIR]
-```
-
----
-
-## 파일 구조
+## 품앗이 모드 진입 시 Claude의 행동 변화
 
 ```
-${CLAUDE_PLUGIN_ROOT}/
-├── SKILL.md                    # 이 문서
-├── pumasi.config.yaml          # 작업 목록 (매 실행 전 수정)
-├── references/
-│   ├── anti-patterns.md        # 복붙형 instruction 절대 금지
-│   ├── role-separation.md      # Claude vs Codex 역할 경계
-│   ├── codex-guide.md          # Codex 특성 + instruction 규칙
-│   ├── instruction-templates.md # instruction 템플릿 + 좋은/나쁜 예시
-│   ├── tech-stack.md           # 모던 기술스택 추천표
-│   └── examples.md             # 실행 예시 (Todo 앱, 인증 시스템)
-└── scripts/
-    ├── pumasi.sh               # 진입점
-    ├── pumasi-job.sh           # Node.js 래퍼
-    ├── pumasi-job.js           # 오케스트레이터
-    └── pumasi-job-worker.js    # Codex 워커 (detached)
-```
-
----
-
-## 주의사항
-
-**순서 의존성 처리**:
-태스크 간 의존성이 있으면 **라운드**로 분리:
-```
-Round 1: 공유 타입/유틸리티 (3개 병렬)
-Round 2: Round 1 결과 사용하는 태스크 (2개 병렬)
-Round 3: 최종 통합 (Claude 직접)
-```
-
-**Codex CLI 필요**:
-```bash
-command -v codex  # 설치 확인
-# 없으면: npm install -g @openai/codex
+일반 모드:          품앗이 모드:
+Claude가 직접 코딩  Claude가 시그니처+요구사항 작성
+                   → pumasi.sh 실행 → Codex가 구현
+                   → 게이트 자동 검증 → 통합
 ```
