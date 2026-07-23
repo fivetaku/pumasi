@@ -1,5 +1,5 @@
 ---
-name: pumasi-image
+name: image
 description: This skill should be used when the user asks to "/pumasi:image", "이미지 만들어줘", "그림 생성해줘", "이미지 그려줘", "썸네일 만들어", "로고 만들어줘", "일러스트 그려줘", "포스터 만들어", "프로필 이미지", "배너 만들어", "아이콘 만들어", "표지 이미지", "image generate", "create image", "make thumbnail", "make logo", "make illustration", "draw image". Also trigger on casual expressions like "그림 하나 뽑아줘", "이미지 좀 만들어봐", "비주얼 만들어줘", and on Codex-named image requests like "코덱스로 이미지 만들어줘", "codex로 그림 뽑아줘" — this skill owns every image request, including the ones that name Codex. DO NOT trigger on code-generation requests like "함수 만들어줘", "컴포넌트 만들어줘", "페이지 만들어줘", "배너 컴포넌트 만들어줘" — those are for /pumasi (parallel coding), not this skill.
 ---
 
@@ -93,14 +93,14 @@ codex features enable image_generation
 
 ### Step 2: 키워드 자동 매핑 → 파라미터 추출
 
-`${CLAUDE_PLUGIN_ROOT}/skills/pumasi-image/references/keyword-mapping.md`를 Read하여 비율·퀄리티 자연어 힌트를 추출한다.
+`${CLAUDE_PLUGIN_ROOT}/skills/image/references/keyword-mapping.md`를 Read하여 비율·퀄리티 자연어 힌트를 추출한다.
 
 - 비율 키워드가 입력에 있으면 → 비율 질문 스킵
 - 퀄리티 키워드가 입력에 있으면 → 퀄리티 질문 스킵
 
 ### Step 3: AskUserQuestion (최대 5개)
 
-`${CLAUDE_PLUGIN_ROOT}/skills/pumasi-image/references/clarification-matrix.md`를 Read하여 모드별 의도 파악 카테고리 3개를 확정한다.
+`${CLAUDE_PLUGIN_ROOT}/skills/image/references/clarification-matrix.md`를 Read하여 모드별 의도 파악 카테고리 3개를 확정한다.
 
 **질문 순서**:
 1. 비율 (Step 2에서 확정됐으면 스킵)
@@ -119,7 +119,7 @@ codex features enable image_generation
 
 ### Step 4: image-studio 내면화 + Output Template 작성
 
-`${CLAUDE_PLUGIN_ROOT}/skills/pumasi-image/references/image-studio-prompt.md`를 Read하여 시스템 프롬프트를 내면화한다.
+`${CLAUDE_PLUGIN_ROOT}/skills/image/references/image-studio-prompt.md`를 Read하여 시스템 프롬프트를 내면화한다.
 
 내면화 후:
 1. Normalization JSON 내부적으로 작성 (노출하지 않음)
@@ -198,10 +198,10 @@ echo "$TARGET_PATH"  # imagen.sh 에 넘길 절대 경로 (동적 계산된 값,
 
 ### Step 6: Codex 이미지 생성 호출
 
-`${CLAUDE_PLUGIN_ROOT}/skills/pumasi-image/scripts/imagen.sh`를 실행 (3번째 인자로 비율을 주면 실측 비율과 비교해 경고):
+`${CLAUDE_PLUGIN_ROOT}/skills/image/scripts/imagen.sh`를 실행 (3번째 인자로 비율을 주면 실측 비율과 비교해 경고):
 
 ```bash
-bash ${CLAUDE_PLUGIN_ROOT}/skills/pumasi-image/scripts/imagen.sh \
+bash ${CLAUDE_PLUGIN_ROOT}/skills/image/scripts/imagen.sh \
   "{prompt_file_path}" \
   "{target_image_path}" \
   "{aspect e.g. 16:9 — 생략 가능}"
@@ -277,11 +277,11 @@ bash ${CLAUDE_PLUGIN_ROOT}/skills/pumasi-image/scripts/imagen.sh \
 
 | 구분 | /pumasi (코드) | /pumasi:image (이미지) |
 |------|---------------|---------------------|
-| 스킬 디렉토리 | `skills/pumasi/` | `skills/pumasi-image/` |
+| 스킬 디렉토리 | `skills/pumasi/` | `skills/image/` |
 | 커맨드 | `/pumasi` | `/pumasi:image` |
 | 자동 트리거 | "구현", "개발", "기능", "코드" | "이미지", "그림", "썸네일", "로고" |
 | 설정 | `pumasi.config.yaml` | 사용 안 함 |
-| 스크립트 | `scripts/pumasi.sh` 외 | `skills/pumasi-image/scripts/imagen.sh` |
+| 스크립트 | `scripts/pumasi.sh` 외 | `skills/image/scripts/imagen.sh` |
 | 작업 dir | `.pumasi-job/` | 없음 (단발 요청) |
 
 두 스킬은 같은 플러그인 안의 독립 모듈이며 서로 간섭하지 않는다.

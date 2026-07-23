@@ -14,7 +14,7 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IMAGEN="${SCRIPT_DIR}/imagen.sh"
 IMAGEN_FULL="${SCRIPT_DIR}/imagen-full.sh"
-PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"   # scripts -> pumasi-image -> skills -> <root>
+PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"   # scripts -> image -> skills -> <root>
 
 PASS=0; FAIL=0
 ok()  { echo "  ✅ $1"; PASS=$((PASS+1)); }

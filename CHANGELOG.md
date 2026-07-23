@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.11.6 — 2026-07-23
+
+- **이미지 진입구 중복 제거.** 슬래시 메뉴에 `/pumasi:image`(커맨드)와 `/pumasi:pumasi-image`(스킬)가 같이 떴다. 커맨드는 "SKILL.md 읽고 그대로 해라"는 3줄 디스패처였을 뿐 실행 로직은 전부 스킬에 있었다.
+  - `commands/image.md` 삭제.
+  - 스킬 디렉토리 `skills/pumasi-image/` → `skills/image/`, frontmatter `name: pumasi-image` → `name: image`. 그 결과 **호출 문자열 `/pumasi:image`는 그대로 유지**되고 진입구만 하나로 줄었다.
+  - 사용자 입장 변화 없음 — `/pumasi:image`도, 자연어 트리거도 전과 동일하게 동작한다.
+
 ## 1.11.5 — 2026-07-23
 
 - **[P0] 이미지 생성이 로컬 프록시 뒤에서 100% 실패하던 문제 수정.** 환경에 `HTTP_PROXY`/`HTTPS_PROXY`가 상속돼 있으면 codex(reqwest)가 그걸 따라가고, 이미지 엔드포인트 요청이 **~153초 뒤 `network error`로 죽는다**. Claude Code를 로컬 프록시와 함께 띄우면 자식 프로세스인 codex가 자동으로 물려받기 때문에 사용자는 원인을 알 수 없었다. `imagen.sh`/`imagen-full.sh`가 **codex 호출에서만** 프록시를 벗긴다(셸 환경은 그대로). 해제는 `PUMASI_IMAGE_KEEP_PROXY=1`.

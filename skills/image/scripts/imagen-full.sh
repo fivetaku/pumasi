@@ -13,7 +13,7 @@ if [[ -z "$INTENT" || -z "$TARGET" ]]; then
 fi
 
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
-SYSPROMPT="${PLUGIN_ROOT}/skills/pumasi-image/references/image-studio-prompt.md"
+SYSPROMPT="${PLUGIN_ROOT}/skills/image/references/image-studio-prompt.md"
 [[ -f "$SYSPROMPT" ]] || { echo "ERROR: image-studio-prompt.md not found at $SYSPROMPT" >&2; exit 3; }
 
 # 작업 디렉토리 — manifest, prompt, log (refine 복구성 + 디버깅)

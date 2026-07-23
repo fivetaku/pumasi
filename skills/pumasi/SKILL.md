@@ -1,6 +1,6 @@
 ---
 name: pumasi
-description: Parallel coding orchestration — Claude takes the PM/architect role, Codex CLI instances act as parallel outsource developers. Auto-triggers when 3+ independent modules need concurrent implementation. Distributes subtasks to Codex, then Claude reviews and integrates. Korean triggers: "/pumasi", "품앗이로 만들어줘", "품앗이 켜줘", "codex 외주로", "codex한테 시켜". English triggers: "pumasi", "parallel with codex", "delegate to codex", "codex outsource". DO NOT trigger on image-generation requests like "이미지 만들어줘", "썸네일 만들어", "로고 만들어줘", "make image", "create thumbnail" — including when they name Codex ("코덱스로 이미지 만들어줘", "codex로 그림 뽑아줘"). Those belong to the pumasi-image skill (/pumasi:image), which also drives Codex.
+description: Parallel coding orchestration — Claude takes the PM/architect role, Codex CLI instances act as parallel outsource developers. Auto-triggers when 3+ independent modules need concurrent implementation. Distributes subtasks to Codex, then Claude reviews and integrates. Korean triggers: "/pumasi", "품앗이로 만들어줘", "품앗이 켜줘", "codex 외주로", "codex한테 시켜". English triggers: "pumasi", "parallel with codex", "delegate to codex", "codex outsource". DO NOT trigger on image-generation requests like "이미지 만들어줘", "썸네일 만들어", "로고 만들어줘", "make image", "create thumbnail" — including when they name Codex ("코덱스로 이미지 만들어줘", "codex로 그림 뽑아줘"). Those belong to the image skill (/pumasi:image), which also drives Codex.
 ---
 
 <!-- first-run setup: idempotent, non-blocking, self-skips after first run -->

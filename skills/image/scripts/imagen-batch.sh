@@ -26,7 +26,7 @@ RESULTS="${WORK_DIR}/results-${TS}.jsonl"
 : > "$RESULTS"
 
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
-IMAGEN_FULL="${PLUGIN_ROOT}/skills/pumasi-image/scripts/imagen-full.sh"
+IMAGEN_FULL="${PLUGIN_ROOT}/skills/image/scripts/imagen-full.sh"
 [[ -x "$IMAGEN_FULL" ]] || chmod +x "$IMAGEN_FULL" 2>/dev/null || true
 
 SUCCESS=0; FAILED=0
