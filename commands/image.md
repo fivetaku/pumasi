@@ -1,6 +1,6 @@
 ---
 name: image
-description: "Codex /imagen으로 이미지 생성 — 모드 자동 감지 + image-studio 프롬프트 + 후처리 금지 가드"
+description: "Codex 이미지 생성 도구로 이미지 생성 — 모드 자동 감지 + image-studio 프롬프트 + 후처리 금지 가드"
 argument-hint: "[이미지 요청 자연어]"
 ---
 
@@ -9,7 +9,9 @@ argument-hint: "[이미지 요청 자연어]"
 
 # /pumasi:image Command
 
-Codex CLI의 `/imagen` 기능을 사용하여 이미지를 생성한다. 기존 `/pumasi`(코드 병렬 외주)와 완전히 독립된 서브커맨드.
+Codex CLI의 이미지 생성 도구(`image_gen`)를 사용하여 이미지를 생성한다. 기존 `/pumasi`(코드 병렬 외주)와 완전히 독립된 서브커맨드.
+
+이미지 요청이면 사용자가 "코덱스로 만들어줘"라고 말했더라도 `/pumasi`가 아니라 이 커맨드가 담당한다.
 
 ## Parse Arguments
 

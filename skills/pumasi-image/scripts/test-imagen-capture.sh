@@ -34,11 +34,19 @@ case "$1" in
     case "${2:-}" in list) echo "image_generation true" ;; enable) : ;; esac
     exit 0 ;;
   exec)
-    if [ "${FAKE_CODEX_MODE:-generate}" != "noop" ]; then
-      printf '%s\n' '{"type":"image_generation_call","status":"completed","result":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC"}'
-    else
-      printf '%s\n' '{"type":"agent_message","text":"no image produced"}'
-    fi
+    # 프록시 상속 여부를 기록 — 래퍼가 codex 호출에서만 프록시를 벗기는지 검증용
+    [ -n "${FAKE_CODEX_PROXY_LOG:-}" ] && \
+      printf 'HTTPS_PROXY=[%s]\n' "${HTTPS_PROXY:-}" > "$FAKE_CODEX_PROXY_LOG"
+    case "${FAKE_CODEX_MODE:-generate}" in
+      noop)
+        printf '%s\n' '{"type":"agent_message","text":"no image produced"}' ;;
+      neterror)
+        # 실제 장애 재현: 도구 호출은 실패하지만 codex 자체는 exit 0 으로 끝난다
+        printf '%s\n' '{"type":"agent_message","text":"tool failed"}'
+        echo 'ERROR codex_core::tools::router: error=image generation failed: network error: error sending request for url (https://chatgpt.com/backend-api/codex/images/generations)' >&2 ;;
+      *)
+        printf '%s\n' '{"type":"image_generation_call","status":"completed","result":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC"}' ;;
+    esac
     exit 0 ;;
   *) exit 0 ;;
 esac
@@ -118,6 +126,32 @@ rm -f "$TMPF"
 SB=$(mktemp); printf '%s\n' '{"type":"image_generation_call","result":"iVBORw0KGgpqdW5r"}' > "$SB"; SO=$(mktemp -u).png
 python3 "${SCRIPT_DIR}/extract_image.py" "$SB" "$SO" >/dev/null 2>&1 && bad "extractor accepted fake PNG" || ok "extractor rejects sub-PNG junk"
 rm -f "$SB" "$SO" 2>/dev/null
+
+echo "== Test 6: tool failure surfaces codex's REASON (not just 'no base64') =="
+# 이 계약이 없어서 2026-07-23 프록시 장애가 40회+ 오진됐다. 실패 사유는 반드시 보여야 한다.
+make_sandbox
+export FAKE_CODEX_MODE=neterror
+rc=$(run_imagen); unset FAKE_CODEX_MODE
+[ "$rc" != "0" ] && ok "non-zero exit (rc=$rc)" || bad "rc=0 despite tool failure"
+grep -q "REASON:\|ERROR: image generation failed" "${SANDBOX}/out.log" \
+  && ok "surfaced codex failure reason" || bad "swallowed the reason (only generic 'no image')"
+grep -q "network error" "${SANDBOX}/out.log" \
+  && ok "kept the underlying network error text" || bad "lost the network error text"
+rm -rf "$SANDBOX"
+
+echo "== Test 7: codex is called with local proxy stripped (opt-out honored) =="
+make_sandbox
+PROXY_LOG="${SANDBOX}/proxy.txt"
+FAKE_CODEX_PROXY_LOG="$PROXY_LOG" HTTPS_PROXY="http://127.0.0.1:3456" HTTP_PROXY="http://127.0.0.1:3456" \
+  PATH="${BIN}:$PATH" bash "$IMAGEN" "$PROMPT_FILE" "$TARGET" "16:9" > "${SANDBOX}/out.log" 2>&1
+grep -q 'HTTPS_PROXY=\[\]' "$PROXY_LOG" 2>/dev/null \
+  && ok "proxy stripped for the codex call" || bad "proxy leaked into codex ($(cat "$PROXY_LOG" 2>/dev/null))"
+rm -f "$PROXY_LOG"
+FAKE_CODEX_PROXY_LOG="$PROXY_LOG" HTTPS_PROXY="http://127.0.0.1:3456" PUMASI_IMAGE_KEEP_PROXY=1 \
+  PATH="${BIN}:$PATH" bash "$IMAGEN" "$PROMPT_FILE" "$TARGET" "16:9" > "${SANDBOX}/out2.log" 2>&1
+grep -q 'HTTPS_PROXY=\[http://127.0.0.1:3456\]' "$PROXY_LOG" 2>/dev/null \
+  && ok "PUMASI_IMAGE_KEEP_PROXY=1 keeps the proxy" || bad "opt-out ignored ($(cat "$PROXY_LOG" 2>/dev/null))"
+rm -rf "$SANDBOX"
 
 echo ""
 echo "RESULT: PASS=${PASS} FAIL=${FAIL}"

@@ -1,6 +1,6 @@
 ---
 name: pumasi-image
-description: This skill should be used when the user asks to "이미지 만들어줘", "그림 생성해줘", "이미지 그려줘", "썸네일 만들어", "로고 만들어줘", "일러스트 그려줘", "포스터 만들어", "프로필 이미지", "배너 만들어", "아이콘 만들어", "표지 이미지", "image generate", "create image", "make thumbnail", "make logo", "make illustration", "draw image". Also trigger on casual expressions like "그림 하나 뽑아줘", "이미지 좀 만들어봐", "비주얼 만들어줘". DO NOT trigger on code-generation requests like "함수 만들어줘", "컴포넌트 만들어줘", "페이지 만들어줘" — those are for /pumasi (parallel coding), not this skill.
+description: This skill should be used when the user asks to "/pumasi:image", "이미지 만들어줘", "그림 생성해줘", "이미지 그려줘", "썸네일 만들어", "로고 만들어줘", "일러스트 그려줘", "포스터 만들어", "프로필 이미지", "배너 만들어", "아이콘 만들어", "표지 이미지", "image generate", "create image", "make thumbnail", "make logo", "make illustration", "draw image". Also trigger on casual expressions like "그림 하나 뽑아줘", "이미지 좀 만들어봐", "비주얼 만들어줘", and on Codex-named image requests like "코덱스로 이미지 만들어줘", "codex로 그림 뽑아줘" — this skill owns every image request, including the ones that name Codex. DO NOT trigger on code-generation requests like "함수 만들어줘", "컴포넌트 만들어줘", "페이지 만들어줘", "배너 컴포넌트 만들어줘" — those are for /pumasi (parallel coding), not this skill.
 ---
 
 <!-- first-run setup: idempotent, non-blocking, self-skips after first run -->
@@ -8,14 +8,15 @@ description: This skill should be used when the user asks to "이미지 만들�
 
 # /pumasi:image — Codex 이미지 생성
 
-> Codex CLI의 `/imagen` 기능으로 이미지를 생성한다.
+> Codex CLI의 이미지 생성 도구(`image_gen`)로 이미지를 생성한다.
 > 기존 `/pumasi`(코드 병렬 외주)와 완전히 분리된 독립 스킬.
+> **이미지 요청은 사용자가 "코덱스로"라고 말해도 전부 이 스킬이 담당한다** — /pumasi로 넘기지 않는다.
 
 ---
 
 ## 핵심 원칙
 
-1. **백엔드는 Codex CLI 단일** — nanobanana 등 다른 백엔드 사용 안 함
+1. **백엔드는 Codex CLI 단일** — nanobanana 등 다른 백엔드 사용 안 함. 호출은 항상 `imagen.sh`/`imagen-full.sh`를 경유한다(프록시 우회·실패 사유 표면화가 그 안에 있다). `codex exec`를 직접 부르지 말 것
 2. **image-studio 시스템 프롬프트 내면화** — 모드 분류 + Output Template 작성
 3. **후처리 절대 금지** — sips/ImageMagick/재인코딩 금지, 원본 SHA1 유지
 4. **저장 경로 고정** — `images/{YYYY-MM-DD}/{slug}-{seq}.png`
@@ -212,6 +213,8 @@ bash ${CLAUDE_PLUGIN_ROOT}/skills/pumasi-image/scripts/imagen.sh \
    — ⚠️ bypass 플래그는 **비대화형 실행용**이며 동작은 대상 경로 1개 쓰기로 한정. 신뢰하는 본인 프로젝트에서만. `< /dev/null`은 exec가 stdin EOF를 무한 대기(헤드리스 행)하는 것을 막는다.
 3. **핵심**: `codex exec`는 이미지를 **base64로만 반환**하고 인터랙티브 TUI와 달리 `~/.codex/generated_images/`에 **저장하지 않는다.** → 스크립트가 `extract_image.py`로 stdout(JSONL) 또는 세션 rollout의 `image_generation_call` base64를 디코딩해 **타깃에 직접 저장**한다(이번 호출 산출물만 — 스테일 오집음 불가). 생성 0장이면 거짓 성공 없이 exit 5.
 4. 실측 해상도(`sips`) + 요청 비율과 큰 괴리 시 경고. 후처리는 절대 하지 않음.
+5. **프록시 우회** — 로컬 프록시(`HTTP_PROXY`/`HTTPS_PROXY`)가 환경에 상속돼 있으면 codex 호출에서만 벗긴다. 프록시를 경유하면 이미지 엔드포인트 요청이 ~153초 뒤 `network error`로 죽는다(2026-07-23 실측: 경유 89/89 실패, 우회 시 동일 프롬프트 44초 성공). 해제는 `PUMASI_IMAGE_KEEP_PROXY=1`.
+6. **실패 사유 표면화** — codex가 남긴 `image generation failed: …` 원문을 `REASON:`으로 출력한다. 실패했는데 사유가 안 보이면 스크립트를 우회해 직접 호출한 것이니 §핵심 원칙 1을 확인할 것.
 
 ### Step 7: 결과 확인 + 표시 (모드별) ★ v1.8.1
 
@@ -293,7 +296,10 @@ bash ${CLAUDE_PLUGIN_ROOT}/skills/pumasi-image/scripts/imagen.sh \
 
 ## Scripts
 
-- `scripts/imagen.sh` — feature flag 확인·활성화 + Codex `/imagen` 호출 + 후처리 금지 가드 + SHA1 검증
+- `scripts/imagen.sh` — feature flag 확인·활성화 + Codex 이미지 생성 호출 + 프록시 우회 + 실패 사유 표면화 + 후처리 금지 가드 + SHA1 검증
+- `scripts/imagen-full.sh` — 영문 프롬프트 작성까지 Codex에 위임(Step 4-bis). 프록시 우회·실패 사유 표면화 동일 적용
+- `scripts/imagen-batch.sh` — 여러 장 일괄 생성
+- `scripts/test-imagen-capture.sh` — 캡처 계약 회귀 테스트(mock codex)
 
 ---
 

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.11.5 — 2026-07-23
+
+- **[P0] 이미지 생성이 로컬 프록시 뒤에서 100% 실패하던 문제 수정.** 환경에 `HTTP_PROXY`/`HTTPS_PROXY`가 상속돼 있으면 codex(reqwest)가 그걸 따라가고, 이미지 엔드포인트 요청이 **~153초 뒤 `network error`로 죽는다**. Claude Code를 로컬 프록시와 함께 띄우면 자식 프로세스인 codex가 자동으로 물려받기 때문에 사용자는 원인을 알 수 없었다. `imagen.sh`/`imagen-full.sh`가 **codex 호출에서만** 프록시를 벗긴다(셸 환경은 그대로). 해제는 `PUMASI_IMAGE_KEEP_PROXY=1`.
+  - 실측(2026-07-23): 프록시 경유 89/89 실패(전부 153.3초에 끊김), 동일 프롬프트를 우회하면 44.6초 만에 1672×941 PNG 성공.
+- **[P0] 실패 사유 표면화.** codex는 `image generation failed: network error: …`를 로그에 남기는데 래퍼가 그걸 버리고 `NO image (base64 못 찾음)`만 출력했다. 네트워크 실패와 정책 거부가 구분되지 않아 위 장애가 40회+ 오진됐다. 이제 codex 원문을 `REASON:`으로 출력하고, network error면 프록시 힌트를 덧붙인다.
+- **트리거 경계 정리.** "코덱스로 이미지 만들어줘" 같은 발화가 `pumasi`(병렬 코딩)와 `pumasi-image` 양쪽에 걸리던 문제 — `pumasi` 스킬에 이미지 요청 negative 가드를 추가하고, `pumasi-image`에 `/pumasi:image`와 Codex 지칭 이미지 표현을 명시해 소유권을 한쪽으로 고정했다.
+- **문서 현행화.** codex 0.145 기준 이미지 도구 이름은 `image_gen`이며 `/imagen` 슬래시는 `codex exec`에서 무효 문자열이다. 커맨드/스킬 설명의 `/imagen` 표기를 실제 동작에 맞게 교체.
+- 회귀 테스트 2건 추가(실패 사유 표면화, 프록시 우회 + opt-out) — 17/17 통과.
+
 ## 1.11.4 — 2026-06-29
 
 - **omc 잔재 제거**: pumasi-image의 프롬프트 저장 경로 `{working_directory}/.omc/imagen/` → `.imagen/`로 변경(omc 툴 의존이 아니라 디렉토리 이름만 omc 유래였음). `.gitignore`도 정리.

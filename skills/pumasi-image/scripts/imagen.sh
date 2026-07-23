@@ -47,11 +47,39 @@ if ! command -v codex >/dev/null 2>&1; then
   exit 3
 fi
 
+# codex 호출 전용 프록시 우회.
+# 로컬 프록시(예: teamclaude 127.0.0.1:3456)가 환경에 상속되면 codex(reqwest)가 그걸 따라가고,
+# 이미지 엔드포인트 요청이 ~153초 뒤 "network error"로 죽는다.
+# 2026-07-23 실측: 프록시 경유 89/89 실패, 같은 프롬프트를 우회하면 44초 만에 성공.
+# 셸 환경은 건드리지 않고 codex 트래픽만 벗긴다. PUMASI_IMAGE_KEEP_PROXY=1 로 해제.
+codex_run() {
+  if [[ "${PUMASI_IMAGE_KEEP_PROXY:-0}" == "1" ]]; then
+    codex "$@"
+  else
+    env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
+        -u ALL_PROXY -u all_proxy codex "$@"
+  fi
+}
+if [[ -n "${HTTP_PROXY:-}${HTTPS_PROXY:-}${http_proxy:-}${https_proxy:-}" \
+      && "${PUMASI_IMAGE_KEEP_PROXY:-0}" != "1" ]]; then
+  echo "[imagen.sh] 로컬 프록시 감지 — codex 호출에서만 우회합니다 (해제: PUMASI_IMAGE_KEEP_PROXY=1)."
+fi
+
+# codex가 남긴 실패 사유를 stderr 로그 / JSONL 양쪽에서 첫 줄만 뽑는다.
+# 이게 없으면 네트워크 실패든 정책 거부든 전부 "base64 못 찾음"으로만 보인다.
+codex_error() {
+  local reason
+  reason=$({ grep -hoE 'image generation failed: [^"\]+' "$@" 2>/dev/null || true; } | head -n1)
+  [[ -z "$reason" ]] && reason=$({ grep -hoE 'error=[^"\]{1,200}' "$@" 2>/dev/null || true; } | head -n1)
+  printf '%s' "$reason"
+  return 0
+}
+
 # 1) feature flag 확인 + 자동 활성화
-FLAG_STATE=$(codex features list 2>&1 | awk '/^image_generation/ {print $NF}' | head -n1)
+FLAG_STATE=$(codex_run features list 2>&1 | awk '/^image_generation/ {print $NF}' | head -n1)
 if [[ "$FLAG_STATE" != "true" ]]; then
   echo "[imagen.sh] enabling image_generation feature flag..."
-  codex features enable image_generation >/dev/null 2>&1
+  codex_run features enable image_generation >/dev/null 2>&1
 fi
 
 # 2) 저장 디렉토리 준비
@@ -78,11 +106,13 @@ LOG_FILE=$(mktemp -t imagen-log.XXXXXX)
 echo "[imagen.sh] calling codex exec --json — target: $TARGET_PATH"
 echo "[imagen.sh] json: $JSON_OUT  log: $LOG_FILE"
 
-if ! codex exec --json \
+if ! codex_run exec --json \
     --skip-git-repo-check \
     --dangerously-bypass-approvals-and-sandbox \
     "$CODEX_PROMPT" < /dev/null > "$JSON_OUT" 2> "$LOG_FILE"; then
   echo "ERROR: codex exec failed. See log: $LOG_FILE" >&2
+  REASON=$(codex_error "$LOG_FILE" "$JSON_OUT")
+  [[ -n "$REASON" ]] && echo "REASON: $REASON" >&2
   tail -50 "$LOG_FILE" >&2
   exit 4
 fi
@@ -99,7 +129,17 @@ else
   if [[ -n "$ROLL" ]] && python3 "$EXTRACT" "$ROLL" "$TARGET_PATH" >/dev/null 2>&1; then
     SOURCE_DESC="session rollout ($ROLL)"
   else
-    echo "ERROR: codex exec produced NO image (stdout/rollout에서 base64 이미지 못 찾음)" >&2
+    REASON=$(codex_error "$LOG_FILE" "$JSON_OUT")
+    if [[ -n "$REASON" ]]; then
+      echo "ERROR: $REASON" >&2
+      case "$REASON" in
+        *"network error"*)
+          echo "       HINT: 이미지 엔드포인트가 네트워크 경로에서 끊겼습니다. 로컬 프록시(HTTP_PROXY/HTTPS_PROXY) 경유가" >&2
+          echo "             이 증상의 확인된 원인입니다. PUMASI_IMAGE_KEEP_PROXY=1을 쓰고 있다면 해제하세요." >&2 ;;
+      esac
+    else
+      echo "ERROR: codex exec produced NO image (stdout/rollout에서 base64 이미지 못 찾음)" >&2
+    fi
     echo "       (생성 실패를 성공으로 보고하지 않기 위해 중단)" >&2
     echo "--- codex log tail ---" >&2
     tail -50 "$LOG_FILE" >&2

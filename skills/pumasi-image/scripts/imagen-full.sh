@@ -55,10 +55,34 @@ esac
 
 # Preflight
 command -v codex >/dev/null 2>&1 || { echo "ERROR: codex CLI not installed" >&2; exit 3; }
-CODEX_VERSION=$(codex --version 2>/dev/null | head -n1)
-FLAG_STATE=$(codex features list 2>&1 | awk '/^image_generation/ {print $NF}' | head -n1)
+
+# codex 호출 전용 프록시 우회 (근거·해제 방법은 imagen.sh 의 같은 블록 주석 참조).
+codex_run() {
+  if [[ "${PUMASI_IMAGE_KEEP_PROXY:-0}" == "1" ]]; then
+    codex "$@"
+  else
+    env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
+        -u ALL_PROXY -u all_proxy codex "$@"
+  fi
+}
+if [[ -n "${HTTP_PROXY:-}${HTTPS_PROXY:-}${http_proxy:-}${https_proxy:-}" \
+      && "${PUMASI_IMAGE_KEEP_PROXY:-0}" != "1" ]]; then
+  echo "[imagen-full.sh] 로컬 프록시 감지 — codex 호출에서만 우회합니다 (해제: PUMASI_IMAGE_KEEP_PROXY=1)." >&2
+fi
+
+# codex가 남긴 실패 사유 첫 줄 (없으면 빈 문자열).
+codex_error() {
+  local reason
+  reason=$({ grep -hoE 'image generation failed: [^"\]+' "$@" 2>/dev/null || true; } | head -n1)
+  [[ -z "$reason" ]] && reason=$({ grep -hoE 'error=[^"\]{1,200}' "$@" 2>/dev/null || true; } | head -n1)
+  printf '%s' "$reason"
+  return 0
+}
+
+CODEX_VERSION=$(codex_run --version 2>/dev/null | head -n1)
+FLAG_STATE=$(codex_run features list 2>&1 | awk '/^image_generation/ {print $NF}' | head -n1)
 if [[ "$FLAG_STATE" != "true" ]]; then
-  codex features enable image_generation >/dev/null 2>&1 || true
+  codex_run features enable image_generation >/dev/null 2>&1 || true
 fi
 
 # 구조화된 작업 정의 (prompt injection 표면 축소)
