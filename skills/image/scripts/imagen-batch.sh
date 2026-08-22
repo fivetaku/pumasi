@@ -39,14 +39,16 @@ for i in $(seq 0 $((COUNT - 1))); do
   ASPECT=$(echo "$ENTRY" | jq -r '.aspect')
   QUALITY=$(echo "$ENTRY" | jq -r '.quality')
   TARGET=$(echo "$ENTRY" | jq -r '.target')
+  # 선택: ref = 스타일 앵커 이미지 경로. 앵커 우선 배치(1장 승인 후 나머지가 앵커 참조)용.
+  REFIMG=$(echo "$ENTRY" | jq -r '.ref // empty')
 
-  if bash "$IMAGEN_FULL" "$INTENT" "$MODE" "$ASPECT" "$QUALITY" "$TARGET" > /dev/null 2>&1; then
+  if bash "$IMAGEN_FULL" "$INTENT" "$MODE" "$ASPECT" "$QUALITY" "$TARGET" "$REFIMG" > /dev/null 2>&1; then
     SUCCESS=$((SUCCESS + 1))
     jq -nc --arg t "$TARGET" --argjson i "$i" \
       '{index:$i,status:"ok",target:$t}' >> "$RESULTS"
   else
     FAILED=$((FAILED + 1))
-    RETRY="bash $IMAGEN_FULL '$INTENT' '$MODE' '$ASPECT' '$QUALITY' '$TARGET'"
+    RETRY="bash $IMAGEN_FULL '$INTENT' '$MODE' '$ASPECT' '$QUALITY' '$TARGET' '$REFIMG'"
     jq -nc --arg t "$TARGET" --argjson i "$i" --arg r "$RETRY" \
       '{index:$i,status:"fail",target:$t,retry:$r}' >> "$RESULTS"
   fi

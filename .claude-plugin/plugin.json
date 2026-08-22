@@ -1,6 +1,6 @@
 {
   "name": "pumasi",
-  "version": "1.11.6",
+  "version": "1.12.0",
   "description": "Parallel coding orchestration + Codex image generation — /pumasi for parallel code, /pumasi:image for AI image generation",
   "author": {
     "name": "chulrolee",

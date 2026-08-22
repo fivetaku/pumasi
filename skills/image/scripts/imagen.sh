@@ -9,9 +9,26 @@ TARGET_PATH="${2:-}"
 EXPECTED_ASPECT="${3:-}"   # 선택: "16:9" 처럼 주면 실제 비율과 비교해 경고
 
 if [[ -z "$PROMPT_FILE" || -z "$TARGET_PATH" ]]; then
-  echo "Usage: $0 <prompt_file> <target_image_path> [expected_aspect e.g. 16:9]" >&2
+  echo "Usage: $0 <prompt_file> <target_image_path> [expected_aspect e.g. 16:9] [--ref <image> ...]" >&2
   exit 2
 fi
+
+# 선택: 레퍼런스 이미지(스타일 앵커). codex 에 --image=<path> 로 파일당 하나씩 전달한다.
+# 주의: `-i FILE...` 형태는 가변 인자라 뒤따르는 프롬프트를 경로로 삼켜버린다(실측). 반드시 --image=<path>.
+REF_ARGS=()
+_i=4
+while [[ $_i -le $# ]]; do
+  _a="${!_i}"
+  if [[ "$_a" == "--ref" ]]; then
+    _i=$((_i+1)); _r="${!_i:-}"
+    if [[ -z "$_r" || ! -f "$_r" ]]; then
+      echo "ERROR: --ref requires an existing file (got: ${_r:-<none>})" >&2; exit 2
+    fi
+    REF_ARGS+=( "--image=$_r" )
+  fi
+  _i=$((_i+1))
+done
+[[ ${#REF_ARGS[@]} -gt 0 ]] && echo "[imagen.sh] 레퍼런스 이미지 ${#REF_ARGS[@]}장 첨부"
 
 # 실제 픽셀 측정 + 요청 비율과 큰 괴리 시 경고 (gpt-image-2는 비율 미보장, 후처리 금지로 보정 불가)
 measure_dims() { # echo "W H" (측정 실패 시 빈 출력)
@@ -106,9 +123,14 @@ LOG_FILE=$(mktemp -t imagen-log.XXXXXX)
 echo "[imagen.sh] calling codex exec --json — target: $TARGET_PATH"
 echo "[imagen.sh] json: $JSON_OUT  log: $LOG_FILE"
 
+# 이번 호출 이후 생성된 파일만 인정하기 위한 시간 기준점(스테일 오집음 방지)
+GEN_DIR="${CODEX_HOME:-$HOME/.codex}/generated_images"
+MARKER=$(mktemp -t imagen-marker.XXXXXX)
+
 if ! codex_run exec --json \
     --skip-git-repo-check \
     --dangerously-bypass-approvals-and-sandbox \
+    ${REF_ARGS[@]+"${REF_ARGS[@]}"} \
     "$CODEX_PROMPT" < /dev/null > "$JSON_OUT" 2> "$LOG_FILE"; then
   echo "ERROR: codex exec failed. See log: $LOG_FILE" >&2
   REASON=$(codex_error "$LOG_FILE" "$JSON_OUT")
@@ -117,10 +139,32 @@ if ! codex_run exec --json \
   exit 4
 fi
 
-# 5) 생성 이미지(base64) 추출 → TARGET 저장.
-#    1차: stdout(JSONL)에서 image_generation_call.result 디코딩.
-#    2차(폴백): 세션 rollout 파일에서 추출(stdout이 result를 안 실어줄 경우).
-if python3 "$EXTRACT" "$JSON_OUT" "$TARGET_PATH" >/dev/null 2>&1; then
+# 5) 생성 이미지 회수 → TARGET 저장. (우선순위 순)
+#    0차: generated_images/<thread_id>/exec-*.{png,jpg,webp}
+#         codex 0.147+ 는 exec 에서도 여기 저장하고 stdout JSONL 에 base64 를 싣지 않는다
+#         (실측 2026-08-22, codex-cli 0.147.0). stdout 의 thread.started.thread_id 가
+#         디렉토리명과 1:1 (실측 동일 날짜) — 이 세션 산출물만 집으므로 동시 실행과 경합하지 않는다.
+#    0.5차: thread_id 를 못 읽었을 때만 마커(시각 기준) 폴백 — 이번 호출 이후 파일만 인정.
+#    1차: stdout(JSONL) base64 디코딩 (구버전 codex 호환).
+#    2차: 세션 rollout 파일 base64 (구버전 폴백).
+pick_newest() { # args: 검색 루트
+  find "$1" -type f \( -name 'exec-*.png' -o -name 'exec-*.jpg' -o -name 'exec-*.webp' \) \
+       -newer "$MARKER" 2>/dev/null | while read -r f; do
+    printf '%s\t%s\n' "$(stat -f '%m' "$f" 2>/dev/null || echo 0)" "$f"
+  done | sort -rn | head -n1 | cut -f2-
+}
+NEWEST=""
+THREAD_ID=$(grep -hoE '"thread_id"[[:space:]]*:[[:space:]]*"[0-9a-f-]{36}"' "$JSON_OUT" 2>/dev/null \
+            | head -n1 | grep -oE '[0-9a-f-]{36}' || true)
+if [[ -n "$THREAD_ID" && -d "$GEN_DIR/$THREAD_ID" ]]; then
+  NEWEST=$(pick_newest "$GEN_DIR/$THREAD_ID")
+elif [[ -z "$THREAD_ID" && -d "$GEN_DIR" ]]; then
+  NEWEST=$(pick_newest "$GEN_DIR")
+fi
+if [[ -n "$NEWEST" && -s "$NEWEST" ]]; then
+  cp "$NEWEST" "$TARGET_PATH"
+  SOURCE_DESC="codex generated_images ($NEWEST)"
+elif python3 "$EXTRACT" "$JSON_OUT" "$TARGET_PATH" >/dev/null 2>&1; then
   SOURCE_DESC="codex exec --json (stdout)"
 else
   SID=$(grep -hoE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' "$LOG_FILE" "$JSON_OUT" 2>/dev/null | head -n1 || true)
@@ -138,7 +182,7 @@ else
           echo "             이 증상의 확인된 원인입니다. PUMASI_IMAGE_KEEP_PROXY=1을 쓰고 있다면 해제하세요." >&2 ;;
       esac
     else
-      echo "ERROR: codex exec produced NO image (stdout/rollout에서 base64 이미지 못 찾음)" >&2
+      echo "ERROR: codex exec produced NO image (generated_images/stdout/rollout 어디에서도 산출물 없음)" >&2
     fi
     echo "       (생성 실패를 성공으로 보고하지 않기 위해 중단)" >&2
     echo "--- codex log tail ---" >&2
@@ -146,6 +190,8 @@ else
     exit 5
   fi
 fi
+
+rm -f "$MARKER" 2>/dev/null || true
 
 if [[ ! -s "$TARGET_PATH" ]]; then
   echo "ERROR: target file not created or empty: $TARGET_PATH" >&2

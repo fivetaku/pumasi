@@ -198,20 +198,24 @@ echo "$TARGET_PATH"  # imagen.sh 에 넘길 절대 경로 (동적 계산된 값,
 
 ### Step 6: Codex 이미지 생성 호출
 
-`${CLAUDE_PLUGIN_ROOT}/skills/image/scripts/imagen.sh`를 실행 (3번째 인자로 비율을 주면 실측 비율과 비교해 경고):
+`${CLAUDE_PLUGIN_ROOT}/skills/image/scripts/imagen.sh`를 실행 (3번째 인자로 비율을 주면 실측 비율과 비교해 경고, `--ref`로 스타일 앵커 이미지 첨부 가능):
 
 ```bash
 bash ${CLAUDE_PLUGIN_ROOT}/skills/image/scripts/imagen.sh \
   "{prompt_file_path}" \
   "{target_image_path}" \
-  "{aspect e.g. 16:9 — 생략 가능}"
+  "{aspect e.g. 16:9 — 생략 가능}" \
+  --ref "{anchor_image_path — 생략 가능, 반복 가능}"
 ```
+
+**`--ref` (스타일 앵커)**: 여러 장을 같은 스타일로 뽑을 때는 1장을 먼저 생성·승인받고, 나머지를 전부 그 파일을 `--ref`로 물려 생성한다(앵커 우선 패턴). 레퍼런스가 있으면 프롬프트에서 스타일 서술을 걷어내고 "첨부 이미지의 스타일·조명·색감 유지" + 피사체·구도 델타만 쓴다 — 레퍼런스가 이미 묶은 것을 긴 산문으로 재서술하면 둘이 싸운다. 스타일 일관성 수단 서열(1차 출처 리서치 2026-08-22): 레퍼런스 이미지 ≫ 텍스트 재사용 ≫ seed(미신 — 어느 벤더도 프롬프트가 달라진 뒤의 재현을 보장하지 않음).
 
 스크립트 내부에서:
 1. `codex features list`로 image_generation feature flag 재확인 (안전망)
 2. `codex exec --json … < /dev/null` 호출 — codex가 image 도구로 1장 생성.
    — ⚠️ bypass 플래그는 **비대화형 실행용**이며 동작은 대상 경로 1개 쓰기로 한정. 신뢰하는 본인 프로젝트에서만. `< /dev/null`은 exec가 stdin EOF를 무한 대기(헤드리스 행)하는 것을 막는다.
-3. **핵심**: `codex exec`는 이미지를 **base64로만 반환**하고 인터랙티브 TUI와 달리 `~/.codex/generated_images/`에 **저장하지 않는다.** → 스크립트가 `extract_image.py`로 stdout(JSONL) 또는 세션 rollout의 `image_generation_call` base64를 디코딩해 **타깃에 직접 저장**한다(이번 호출 산출물만 — 스테일 오집음 불가). 생성 0장이면 거짓 성공 없이 exit 5.
+   — ⚠️ 레퍼런스는 내부적으로 `--image=<path>`(파일당 1개)로 전달된다. `-i FILE...`은 가변 인자라 뒤따르는 프롬프트를 이미지 경로로 삼켜 "No prompt provided" 실패를 만든다(실측 2026-08-22).
+3. **핵심 (회수 계약, codex-cli 0.147+ 실측)**: `codex exec`는 이미지를 `~/.codex/generated_images/<thread_id>/exec-*.png`로 **저장**하고 stdout JSONL에는 base64를 **싣지 않는다**. → 스크립트가 stdout의 `thread.started.thread_id`(디렉토리명과 1:1)로 이 세션 산출물만 집어 타깃에 복사한다(동시 실행과 경합 없음). 구버전 codex 호환용으로 stdout(JSONL)·세션 rollout의 base64 디코딩 폴백을 유지한다. 생성 0장이면 거짓 성공 없이 exit 5.
 4. 실측 해상도(`sips`) + 요청 비율과 큰 괴리 시 경고. 후처리는 절대 하지 않음.
 5. **프록시 우회** — 로컬 프록시(`HTTP_PROXY`/`HTTPS_PROXY`)가 환경에 상속돼 있으면 codex 호출에서만 벗긴다. 프록시를 경유하면 이미지 엔드포인트 요청이 ~153초 뒤 `network error`로 죽는다(2026-07-23 실측: 경유 89/89 실패, 우회 시 동일 프롬프트 44초 성공). 해제는 `PUMASI_IMAGE_KEEP_PROXY=1`.
 6. **실패 사유 표면화** — codex가 남긴 `image generation failed: …` 원문을 `REASON:`으로 출력한다. 실패했는데 사유가 안 보이면 스크립트를 우회해 직접 호출한 것이니 §핵심 원칙 1을 확인할 것.

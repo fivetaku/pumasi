@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
 # /pumasi:image — 영문 프롬프트 작성까지 Codex에 위임
-# Usage: imagen-full.sh <intent> <mode> <aspect> <quality> <target_image_path>
+# Usage: imagen-full.sh <intent> <mode> <aspect> <quality> <target_image_path> [ref_image]
 # Feature flag: PUMASI_IMAGE_DELEGATE_PROMPT=1 일 때 SKILL.md Step 4-bis에서 호출
 
 set -euo pipefail
 
-INTENT="${1:-}"; MODE="${2:-}"; ASPECT="${3:-}"; QUALITY="${4:-}"; TARGET="${5:-}"
+INTENT="${1:-}"; MODE="${2:-}"; ASPECT="${3:-}"; QUALITY="${4:-}"; TARGET="${5:-}"; REF="${6:-}"
 
 if [[ -z "$INTENT" || -z "$TARGET" ]]; then
-  echo "Usage: $0 <intent> <mode> <aspect> <quality> <target>" >&2
+  echo "Usage: $0 <intent> <mode> <aspect> <quality> <target> [ref_image]" >&2
+  exit 2
+fi
+if [[ -n "$REF" && ! -f "$REF" ]]; then
+  echo "ERROR: ref image not found: $REF" >&2
   exit 2
 fi
 
@@ -49,7 +53,7 @@ aspect_warn() { # args: W H "ew:eh"
 
 # Path 보안 (workspace 하위 제한 — prompt injection 방어)
 case "$TARGET" in
-  /Users/*|/tmp/*|/var/folders/*) ;;
+  /Users/*|/tmp/*|/var/folders/*|/private/tmp/*|/private/var/folders/*) ;;
   *) echo "ERROR: target path must be under user workspace: $TARGET" >&2; exit 6;;
 esac
 
@@ -102,7 +106,7 @@ Structured task:
 
 Steps:
 1. Read ${SYSPROMPT} and internalize: Specificity Gate, Cliche Avoidance, Backend Capability, Persona Library, Mode Characteristics, Output Template.
-2. Write a 200-500 word English image prompt following the Output Template for mode ${MODE}.
+2. Write a 200-500 word English image prompt following the Output Template for mode ${MODE}.$([[ -n "$REF" ]] && printf '\n   A reference image is attached as a STYLE ANCHOR: match its visual style, color palette, lighting and rendering treatment. Do NOT re-describe the style in long prose — state that the attached reference defines the style, then describe only the subject and composition.')
 3. Save the English prompt to ${PROMPT_OUT}.
 4. Call your image generation tool with that prompt to generate EXACTLY ONE image, immediately on this turn (the wrapper saves the file).
 5. Do NOT copy, move, or rename the generated original; do NOT post-process (no sips/ImageMagick/Pillow/resize/recoding). The calling wrapper collects and saves the file.
@@ -121,20 +125,48 @@ Forbidden:
 EOF
 )
 
-# Codex 실행 — --json 으로 이미지 base64를 받는다(파일 저장은 wrapper가 결정적으로 수행).
+# Codex 실행 — 파일 저장(수집)은 wrapper가 결정적으로 수행.
 # < /dev/null: exec가 stdin EOF를 무한 대기(헤드리스 행)하는 것 방지.
+# ⚠️ 반드시 codex_run(프록시 우회) 경유 — 직접 codex 호출은 로컬 프록시 상속으로 이미지 엔드포인트가 죽는다(2026-07-23 실측).
+# ⚠️ 레퍼런스는 --image=<path> 형태만 — `-i FILE...`은 가변 인자라 뒤따르는 프롬프트를 경로로 삼킨다(실측 2026-08-22).
 JSON_OUT="${WORK_DIR}/events-${TS}.jsonl"
-if ! codex exec --json \
+GEN_DIR="${CODEX_HOME:-$HOME/.codex}/generated_images"
+MARKER=$(mktemp -t imagen-full-marker.XXXXXX)
+REF_ARGS=()
+[[ -n "$REF" ]] && REF_ARGS+=( "--image=$REF" )
+if ! codex_run exec --json \
     --skip-git-repo-check \
     --dangerously-bypass-approvals-and-sandbox \
+    ${REF_ARGS[@]+"${REF_ARGS[@]}"} \
     "$CODEX_PROMPT" < /dev/null > "$JSON_OUT" 2> "$CODEX_LOG"; then
   echo "ERROR: codex exec failed. Log: $CODEX_LOG" >&2
   echo "FALLBACK_HINT: caller should retry with imagen.sh + Claude-written prompt" >&2
   exit 4
 fi
 
-# 생성 이미지(base64) 추출 → TARGET. 1차 stdout(JSONL), 2차 세션 rollout 폴백.
-if python3 "$EXTRACT" "$JSON_OUT" "$TARGET" >/dev/null 2>&1; then
+# 생성 이미지 회수 → TARGET.
+# 0차: generated_images/<thread_id>/exec-* (codex 0.147+ 실측 경로 — stdout에 base64 없음).
+#      stdout의 thread.started.thread_id == 디렉토리명(실측)이라 동시 실행과 경합하지 않는다.
+# 0.5차: thread_id 미획득 시 마커(시각) 폴백. 1차 stdout base64, 2차 rollout (구버전 호환).
+pick_newest() {
+  find "$1" -type f \( -name 'exec-*.png' -o -name 'exec-*.jpg' -o -name 'exec-*.webp' \) \
+       -newer "$MARKER" 2>/dev/null | while read -r f; do
+    printf '%s\t%s\n' "$(stat -f '%m' "$f" 2>/dev/null || echo 0)" "$f"
+  done | sort -rn | head -n1 | cut -f2-
+}
+NEWEST=""
+THREAD_ID=$(grep -hoE '"thread_id"[[:space:]]*:[[:space:]]*"[0-9a-f-]{36}"' "$JSON_OUT" 2>/dev/null \
+            | head -n1 | grep -oE '[0-9a-f-]{36}' || true)
+if [[ -n "$THREAD_ID" && -d "$GEN_DIR/$THREAD_ID" ]]; then
+  NEWEST=$(pick_newest "$GEN_DIR/$THREAD_ID")
+elif [[ -z "$THREAD_ID" && -d "$GEN_DIR" ]]; then
+  NEWEST=$(pick_newest "$GEN_DIR")
+fi
+rm -f "$MARKER" 2>/dev/null || true
+if [[ -n "$NEWEST" && -s "$NEWEST" ]]; then
+  cp "$NEWEST" "$TARGET"
+  SOURCE_DESC="codex generated_images ($NEWEST)"
+elif python3 "$EXTRACT" "$JSON_OUT" "$TARGET" >/dev/null 2>&1; then
   SOURCE_DESC="codex exec --json (stdout)"
 else
   SID=$(grep -hoE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' "$CODEX_LOG" "$JSON_OUT" 2>/dev/null | head -n1 || true)
@@ -143,7 +175,7 @@ else
   if [[ -n "$ROLL" ]] && python3 "$EXTRACT" "$ROLL" "$TARGET" >/dev/null 2>&1; then
     SOURCE_DESC="session rollout ($ROLL)"
   else
-    echo "ERROR: codex exec produced NO image (stdout/rollout에서 base64 못 찾음)" >&2
+    echo "ERROR: codex exec produced NO image (generated_images/stdout/rollout 어디에서도 산출물 없음)" >&2
     echo "FALLBACK_HINT: caller should retry with imagen.sh + Claude-written prompt" >&2
     tail -30 "$CODEX_LOG" >&2
     exit 5
