@@ -10,3 +10,7 @@ RESEARCH/
 .imagen/
 .imagen-full/
 .imagen-batch/
+
+# 도구 산출물 (커밋 대상 아님)
+.insane-review/
+skills/pumasi/scripts/cache/

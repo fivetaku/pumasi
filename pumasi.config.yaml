@@ -1,4 +1,12 @@
 pumasi:
+  # ── 외주 워커 CLI 선택 (defaults.command 또는 task별 command 로 지정) ──
+  # codex (기본) : "codex exec --dangerously-bypass-approvals-and-sandbox"
+  # grok         : "grok --no-auto-update --no-alt-screen --sandbox workspace --always-approve -p"
+  #                # xAI Grok Build. 샌드박스가 기본 off라 workspace로 조이고, 자동 업데이터를 끈다.
+  # gajae-code   : "gjc --print"                            # 멀티모델 코딩 CLI. 프롬프트가 --print 뒤 positional(MESSAGE)로 전달됨
+  # antigravity  : "agy --dangerously-skip-permissions -p"  # Gemini CLI 후계 (디자인/UI)
+  # ※ codex 외 CLI는 --output-schema 미지원 → report.json 없이 output.txt 기반 통합 (graceful)
+  # ※ task별로 다른 command 지정 가능 → 모듈마다 다른 CLI에 병렬 외주
   defaults:
     command: "codex exec --dangerously-bypass-approvals-and-sandbox"
     emoji: "🤖"

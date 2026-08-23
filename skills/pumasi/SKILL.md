@@ -142,7 +142,11 @@ Claude가 직접 코딩  Claude가 시그니처+요구사항 작성
 
 ### Phase 2: 설정 (Claude)
 
-`pumasi.config.yaml`의 `tasks:` 섹션을 수정.
+`.pumasi/pumasi.config.yaml`(프로젝트 디렉토리 기준)의 `tasks:` 섹션을 수정.
+
+> **중요**: 반드시 **프로젝트 디렉토리**에 `.pumasi/pumasi.config.yaml`을 생성/수정한다 (`pumasi-job.js`의
+> `resolveDefaultConfigFile`이 1순위로 찾는 경로). 플러그인 루트의 `${CLAUDE_PLUGIN_ROOT}/pumasi.config.yaml`은
+> 예시 파일일 뿐이며 업데이트 시 덮어써지므로 **절대 직접 수정하지 않는다**.
 
 > **instruction 작성 전 반드시 Read**:
 > - `${CLAUDE_PLUGIN_ROOT}/skills/pumasi/references/codex-guide.md` — Codex 특성, DO/DON'T 규칙, 라이브러리 대체 방지
@@ -157,19 +161,19 @@ Claude가 직접 코딩  Claude가 시그니처+요구사항 작성
 ### Phase 3: 실행 (Claude → Bash)
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/scripts/pumasi.sh start "프로젝트 개요: [간단한 설명]"
+${CLAUDE_PLUGIN_ROOT}/skills/pumasi/scripts/pumasi.sh start "프로젝트 개요: [간단한 설명]"
 ```
 
 ### Phase 4: 모니터링 (Claude)
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/scripts/pumasi.sh wait [JOB_DIR]
+${CLAUDE_PLUGIN_ROOT}/skills/pumasi/scripts/pumasi.sh wait [JOB_DIR]
 ```
 
 ### Phase 5: 게이트 검증 + 선택적 코드 리뷰 (Claude)
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/scripts/pumasi.sh results [JOB_DIR]
+${CLAUDE_PLUGIN_ROOT}/skills/pumasi/scripts/pumasi.sh results [JOB_DIR]
 ```
 
 **4단계 검증 프로세스:**
@@ -212,7 +216,7 @@ Codex가 하는 일: 실제 수정 실행
 **수정이 필요 없는 경우**: 서브태스크 간 연결만 확인 후 정리.
 
 ```bash
-${CLAUDE_PLUGIN_ROOT}/scripts/pumasi.sh clean [JOB_DIR]
+${CLAUDE_PLUGIN_ROOT}/skills/pumasi/scripts/pumasi.sh clean [JOB_DIR]
 ```
 
 > **실행 예시 참고**: `${CLAUDE_PLUGIN_ROOT}/skills/pumasi/references/examples.md`
@@ -249,20 +253,25 @@ pumasi.sh clean [JOB_DIR]
 
 ```
 ${CLAUDE_PLUGIN_ROOT}/
-├── SKILL.md                    # 이 문서
-├── pumasi.config.yaml          # 작업 목록 (매 실행 전 수정)
-├── references/
-│   ├── anti-patterns.md        # 복붙형 instruction 절대 금지
-│   ├── role-separation.md      # Claude vs Codex 역할 경계
-│   ├── codex-guide.md          # Codex 특성 + instruction 규칙
-│   ├── instruction-templates.md # instruction 템플릿 + 좋은/나쁜 예시
-│   ├── tech-stack.md           # 모던 기술스택 추천표
-│   └── examples.md             # 실행 예시 (Todo 앱, 인증 시스템)
-└── scripts/
-    ├── pumasi.sh               # 진입점
-    ├── pumasi-job.sh           # Node.js 래퍼
-    ├── pumasi-job.js           # 오케스트레이터
-    └── pumasi-job-worker.js    # Codex 워커 (detached)
+├── pumasi.config.yaml           # 예시 config (직접 수정 금지, 업데이트 시 덮어써짐)
+└── skills/pumasi/
+    ├── SKILL.md                 # 이 문서
+    ├── references/
+    │   ├── anti-patterns.md      # 복붙형 instruction 절대 금지
+    │   ├── role-separation.md    # Claude vs Codex 역할 경계
+    │   ├── codex-guide.md        # Codex 특성 + instruction 규칙
+    │   ├── instruction-templates.md # instruction 템플릿 + 좋은/나쁜 예시
+    │   ├── tech-stack.md         # 모던 기술스택 추천표
+    │   └── examples.md           # 실행 예시 (Todo 앱, 인증 시스템)
+    └── scripts/
+        ├── pumasi.sh             # 진입점
+        ├── pumasi-job.sh         # Node.js 래퍼
+        ├── pumasi-job.js         # 오케스트레이터
+        └── pumasi-job-worker.js  # Codex 워커 (detached)
+
+프로젝트 디렉토리/
+└── .pumasi/
+    └── pumasi.config.yaml       # 실제 사용하는 프로젝트별 config (1순위)
 ```
 
 ---
@@ -283,9 +292,27 @@ command -v codex  # 설치 확인
 # 없으면: npm install -g @openai/codex
 ```
 
-**외주 워커 교체 (선택) — gajae-code(`gjc`) / Antigravity CLI(`agy`)**:
+**외주 워커 교체 (선택) — Grok(`grok`) / gajae-code(`gjc`) / Antigravity CLI(`agy`)**:
 기본 워커는 Codex지만, task의 `command:` 또는 `defaults.command:`를 바꾸면 다른 CLI로 외주할 수 있다.
 프롬프트는 항상 명령의 **마지막 positional 인자**로 자동 전달되므로, 그 형태로 끝나는 명령이면 된다.
+
+**Grok CLI(`grok`)** — xAI Grok Build (코드·대규모 분석):
+```yaml
+pumasi:
+  defaults:
+    command: "grok --no-auto-update --no-alt-screen --sandbox workspace --always-approve -p"
+```
+- 실측(2026-08-23, grok 1.0.4): 비-TTY 파이프에서 stdout 정상 출력 — agy 같은 누락 버그 없음.
+- **샌드박스가 기본 off**라 `--sandbox workspace`로 조인다 (codex와 반대 — codex는 기본 샌드박스).
+- **자동 업데이터가 백그라운드로 돌므로 `--no-auto-update` 필수.** 넣지 않으면 워커 실행 중 업데이트가 끼어든다.
+- codex 전용 `--output-schema/-o` 미주입 → `report.json` 없이 `output.txt` 기반 통합 (graceful).
+  grok 자체는 `--json-schema`로 구조화 출력을 지원하지만 결과가 stdout JSON의 `.text`에 **문자열로 중첩**되므로
+  codex처럼 파일로 떨어지지 않는다 (언랩 필요 — 현재 미구현).
+- 모델은 grok 기본값(`grok-4.6`) 사용. `grok-code-fast-1`은 2026-08-15 폐기되었으므로 쓰지 않는다.
+- 인증: `grok login`(구독 세션, `XAI_API_KEY` 불필요) 또는 `XAI_API_KEY` 환경변수.
+- ⚠️ **PATH 주의**: `~/.grok/bin/grok`에 설치되고 셸 프로필을 통해 PATH에 들어간다.
+  비대화형 셸에서 `command -v grok`이 실패하면 절대경로(`$HOME/.grok/bin/grok`)로 지정한다.
+- 설치: `curl -fsSL https://x.ai/cli/install.sh | bash` (원격 스크립트 즉시 실행 — 내용을 먼저 확인하려면 `-o`로 받아서 읽고 실행).
 
 **gajae-code(`gjc`)** — 멀티모델 코딩 CLI (`Yeachan-Heo/gajae-code`):
 ```yaml
@@ -315,9 +342,14 @@ pumasi:
   ```
   빠른 설치를 원하면 `curl -fsSL https://antigravity.google/cli/install.sh | bash` (원격 스크립트를 검증 없이 즉시 실행 — 신뢰할 때만).
 
-**task별 혼합**: 모듈마다 다른 `command:`를 지정하면 codex / gjc / agy에 병렬로 나눠 외주할 수 있다.
+**task별 혼합**: 모듈마다 다른 `command:`를 지정하면 codex / grok / gjc / agy에 병렬로 나눠 외주할 수 있다.
+
+> ⚠️ **같은 과제를 여러 워커에게 시키는 "토너먼트"는 품앗이의 기능이 아니다.** 품앗이의 본질은 *분할*이고
+> 토너먼트는 *중복*이라 "단일 파일 작업 = 병렬 이점 없음" 규칙과 충돌한다. 경쟁·채점·승자 채택이 필요하면
+> 끼리끼리(kkirikkiri)의 Workflow 경로를 쓴다. 설계 근거: `PRD/worker-tournament/01_PRD.md`
 
 > ⚠️ **샌드박스/승인 우회 안내 (opt-in 경계).** 위 provider 설정의 `--dangerously-skip-permissions`(agy) /
+> `--sandbox workspace --always-approve`(grok) /
 > `--dangerously-bypass-approvals-and-sandbox`(codex)는 워커가 **승인 프롬프트 없이 파일을 쓰도록** 한다 —
 > 병렬 외주 자동화를 위해 필요한 동작이다. 따라서 pumasi는 **신뢰하는 본인 레포에서만** 실행하고,
 > 외부에서 받은/검토 안 된 코드베이스나 프롬프트에는 쓰지 않는다. `/pumasi` 호출 자체가 이 우회에 대한 명시적 동의이며,

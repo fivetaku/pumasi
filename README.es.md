@@ -181,6 +181,7 @@ pumasi.sh clean [JOB_DIR]
 
 - CLI de [Claude Code](https://docs.anthropic.com/claude-code)
 - [Codex CLI](https://github.com/openai/codex) — `npm install -g @openai/codex`
+- (opcional) [Grok CLI](https://docs.x.ai/build/overview) — `curl -fsSL https://x.ai/cli/install.sh | bash`
 - Node.js 18+
 - Clave de API de OpenAI (para Codex)
 
