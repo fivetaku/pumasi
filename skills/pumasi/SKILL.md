@@ -346,7 +346,7 @@ pumasi:
 
 > ⚠️ **같은 과제를 여러 워커에게 시키는 "토너먼트"는 품앗이의 기능이 아니다.** 품앗이의 본질은 *분할*이고
 > 토너먼트는 *중복*이라 "단일 파일 작업 = 병렬 이점 없음" 규칙과 충돌한다. 경쟁·채점·승자 채택이 필요하면
-> 끼리끼리(kkirikkiri)의 Workflow 경로를 쓴다. 설계 근거: `PRD/worker-tournament/01_PRD.md`
+> 끼리끼리(kkirikkiri)의 Workflow 경로를 쓴다. 설계 근거: `docs/design/worker-tournament/01_PRD.md`
 
 > ⚠️ **샌드박스/승인 우회 안내 (opt-in 경계).** 위 provider 설정의 `--dangerously-skip-permissions`(agy) /
 > `--sandbox workspace --always-approve`(grok) /

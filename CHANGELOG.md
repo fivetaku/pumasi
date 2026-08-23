@@ -10,7 +10,7 @@
   - codex 전용 `--output-schema/-o`는 주입되지 않으므로 `report.json` 없이 `output.txt` 기반 통합(graceful). grok 자체는 `--json-schema`를 지원하지만 결과가 stdout JSON의 `.text`에 문자열로 중첩돼 파일로 떨어지지 않는다(언랩 미구현).
   - 실측(2026-08-23, grok 1.0.4): **워커 3개 동시 실행 전부 exit 0, 게이트 9/9 통과, 레이트 리밋 에러 0건, output.txt 정상**(agy의 stdout 누락 버그 없음). 소요 24~53초.
   - ⚠️ PATH 주의: `~/.grok/bin/grok`에 설치되고 셸 프로필로만 PATH에 오른다. 비대화형 셸에서 못 찾으면 절대경로로 지정한다. 또한 npm 서드파티 `@vibe-kit/grok-cli`가 같은 `grok` 이름을 쓰므로 어느 쪽이 잡히는지 확인이 필요하다.
-- **문서 경계 명시**: 같은 과제를 여러 워커에게 시키는 **토너먼트는 품앗이의 기능이 아니다.** 품앗이의 본질은 *분할*이고 토너먼트는 *중복*이라 "단일 파일 작업 = 병렬 이점 없음" 규칙과 충돌한다. 경쟁·채점·승자 채택은 끼리끼리(kkirikkiri) Workflow 경로 소관. 설계 근거: `PRD/worker-tournament/01_PRD.md`
+- **문서 경계 명시**: 같은 과제를 여러 워커에게 시키는 **토너먼트는 품앗이의 기능이 아니다.** 품앗이의 본질은 *분할*이고 토너먼트는 *중복*이라 "단일 파일 작업 = 병렬 이점 없음" 규칙과 충돌한다. 경쟁·채점·승자 채택은 끼리끼리(kkirikkiri) Workflow 경로 소관. 설계 근거: `docs/design/worker-tournament/01_PRD.md`
 
 - **회귀 테스트 추가** — `tests/test-worker-command.sh` (13 assertions). codex 전용 `--output-schema`/`-o`가 grok·agy·gjc에 누출되지 않는지를 고정한다(누출되면 워커가 알 수 없는 플래그로 즉사). 변이 테스트로 검출력 확인(`isCodex` 게이트 제거 → 4건 실패 검출).
 ## 1.11.6 — 2026-07-23
