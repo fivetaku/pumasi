@@ -9,13 +9,15 @@ TARGET_PATH="${2:-}"
 EXPECTED_ASPECT="${3:-}"   # 선택: "16:9" 처럼 주면 실제 비율과 비교해 경고
 
 if [[ -z "$PROMPT_FILE" || -z "$TARGET_PATH" ]]; then
-  echo "Usage: $0 <prompt_file> <target_image_path> [expected_aspect e.g. 16:9] [--ref <image> ...]" >&2
+  echo "Usage: $0 <prompt_file> <target_image_path> [expected_aspect e.g. 16:9] [--ref <image> ...] [--backend <codex|grok>]" >&2
   exit 2
 fi
 
 # 선택: 레퍼런스 이미지(스타일 앵커). codex 에 --image=<path> 로 파일당 하나씩 전달한다.
 # 주의: `-i FILE...` 형태는 가변 인자라 뒤따르는 프롬프트를 경로로 삼켜버린다(실측). 반드시 --image=<path>.
 REF_ARGS=()
+BACKEND="codex"
+GROK_REF=""
 _i=4
 while [[ $_i -le $# ]]; do
   _a="${!_i}"
@@ -25,6 +27,12 @@ while [[ $_i -le $# ]]; do
       echo "ERROR: --ref requires an existing file (got: ${_r:-<none>})" >&2; exit 2
     fi
     REF_ARGS+=( "--image=$_r" )
+    [[ -z "$GROK_REF" ]] && GROK_REF="$_r"
+  elif [[ "$_a" == "--backend" ]]; then
+    _i=$((_i+1)); BACKEND="${!_i:-}"
+    if [[ "$BACKEND" != "codex" && "$BACKEND" != "grok" ]]; then
+      echo "ERROR: --backend must be codex or grok (got: ${BACKEND:-<none>})" >&2; exit 2
+    fi
   fi
   _i=$((_i+1))
 done
@@ -56,6 +64,95 @@ aspect_warn() { # args: W H "ew:eh"
 if [[ ! -f "$PROMPT_FILE" ]]; then
   echo "ERROR: prompt file not found: $PROMPT_FILE" >&2
   exit 2
+fi
+
+if [[ "$BACKEND" == "grok" ]]; then
+  GROK_BIN="${GROK_BIN:-grok}"
+  if ! command -v "$GROK_BIN" >/dev/null 2>&1; then
+    echo "ERROR: grok CLI not installed" >&2
+    exit 3
+  fi
+  GROK_MODELS=$("$GROK_BIN" models 2>&1 || true)
+  if printf '%s\n' "$GROK_MODELS" | grep -qi "not authenticated"; then
+    echo "ERROR: grok not logged in — run: grok login" >&2
+    exit 3
+  fi
+
+  TARGET_DIR=$(dirname "$TARGET_PATH")
+  mkdir -p "$TARGET_DIR"
+  PROMPT_BODY=$(cat "$PROMPT_FILE")
+  GROK_ASPECT="$EXPECTED_ASPECT"
+  case "$GROK_ASPECT" in
+    9:16|16:9|1:1) ;;
+    *)
+      echo "WARN: unsupported Grok aspect '${GROK_ASPECT:-<none>}' — using 1:1" >&2
+      GROK_ASPECT="1:1" ;;
+  esac
+
+  WORK=$(mktemp -d -t imagen-grok.XXXXXX)
+  GROK_STDOUT=$(mktemp -t imagen-grok-out.XXXXXX)
+  LOG_FILE=$(mktemp -t imagen-grok-log.XXXXXX)
+  MARKER=$(mktemp -t imagen-grok-marker.XXXXXX)
+  GROK_PROMPT_BODY=${PROMPT_BODY//\\/\\\\}
+  GROK_PROMPT_BODY=${GROK_PROMPT_BODY//\"/\\\"}
+  if [[ -n "$GROK_REF" ]]; then
+    REF_BASENAME=$(basename "$GROK_REF")
+    cp "$GROK_REF" "$WORK/$REF_BASENAME"
+    GROK_INSTRUCTION="Call image_edit exactly once using ./$REF_BASENAME as the source image. Edit instruction (use verbatim): \"$GROK_PROMPT_BODY\". Keep everything not mentioned unchanged. Do not ask questions. Do not read other files. After the tool call finishes, reply with ONLY the absolute saved file path."
+    GROK_MODE="image_edit"
+  else
+    GROK_INSTRUCTION="Call image_gen exactly once with aspect_ratio=$GROK_ASPECT. Prompt (use verbatim): \"$GROK_PROMPT_BODY\". Do not ask questions. Do not read other files. After the tool call finishes, reply with ONLY the absolute saved file path."
+    GROK_MODE="image_gen"
+  fi
+
+  echo "[imagen.sh] calling grok $GROK_MODE — target: $TARGET_PATH"
+  if ! "$GROK_BIN" --no-auto-update --no-alt-screen --sandbox workspace --always-approve \
+      --cwd "$WORK" -p "$GROK_INSTRUCTION" < /dev/null > "$GROK_STDOUT" 2> "$LOG_FILE"; then
+    echo "[imagen.sh] grok exited non-zero; checking for a generated image" >&2
+  fi
+
+  GROK_SOURCE=$(python3 -c 'import re,sys; s=open(sys.argv[1]).read(); m=re.findall(r"(/.+?/images/[0-9]+\.(?:jpg|png))(?=\s|$)",s,re.I); print(m[-1] if m else "")' "$GROK_STDOUT")
+  if [[ -z "$GROK_SOURCE" || ! -s "$GROK_SOURCE" ]]; then
+    ENCODED_WORK=$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1],safe=""))' "$WORK")
+    GROK_SESSION_ROOT="$HOME/.grok/sessions/$ENCODED_WORK"
+    GROK_SOURCE=$({ find "$GROK_SESSION_ROOT" -type f -path '*/images/*' \
+      \( -name '*.jpg' -o -name '*.png' \) -newer "$MARKER" 2>/dev/null || true; } | while read -r f; do
+        printf '%s\t%s\n' "$(stat -f '%m' "$f" 2>/dev/null || echo 0)" "$f"
+      done | sort -rn | head -n1 | cut -f2-)
+  fi
+  if [[ -z "$GROK_SOURCE" || ! -s "$GROK_SOURCE" ]]; then
+    echo "ERROR: grok produced NO image (stdout/session scan found no new images/* output)" >&2
+    tail -50 "$LOG_FILE" >&2
+    exit 5
+  fi
+
+  cp "$GROK_SOURCE" "$TARGET_PATH"
+  SOURCE_DESC="grok $GROK_MODE ($GROK_SOURCE)"
+  rm -rf "$WORK"
+  rm -f "$MARKER" "$GROK_STDOUT" 2>/dev/null || true
+
+  if [[ ! -s "$TARGET_PATH" ]]; then
+    echo "ERROR: target file not created or empty: $TARGET_PATH" >&2
+    exit 5
+  fi
+
+  SIZE=$(wc -c < "$TARGET_PATH" | tr -d ' ')
+  FILE_INFO=$(file "$TARGET_PATH")
+  SHA1=$(shasum "$TARGET_PATH" | awk '{print $1}')
+  DIMS=$(measure_dims "$TARGET_PATH")
+  DIM_STR="${DIMS// /x}"; [[ -z "$DIM_STR" ]] && DIM_STR="(unmeasured)"
+
+  cat <<EOF
+[imagen.sh] SUCCESS
+  path:    $TARGET_PATH
+  source:  $SOURCE_DESC
+  size:    $SIZE bytes
+  dims:    $DIM_STR
+  info:    $FILE_INFO
+  sha1:    $SHA1
+  log:     $LOG_FILE
+EOF
+  exit 0
 fi
 
 # codex 설치 확인

@@ -206,6 +206,80 @@ PATH="${BIN}:$PATH" CODEX_HOME="${SANDBOX}/codexhome" \
 unset FAKE_CODEX_MODE
 rm -rf "$SANDBOX"
 
+make_grok_mock() {
+  cat > "${BIN}/grok" <<'FAKE'
+#!/usr/bin/env bash
+if [ "${1:-}" = "models" ]; then
+  echo "You are logged in"
+  exit 0
+fi
+CWD=""; PROMPT=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --cwd) shift; CWD="${1:-}" ;;
+    -p) shift; PROMPT="${1:-}" ;;
+  esac
+  shift
+done
+[ -n "${FAKE_GROK_PROMPT_LOG:-}" ] && printf '%s' "$PROMPT" > "$FAKE_GROK_PROMPT_LOG"
+if printf '%s' "$PROMPT" | grep -q "image_edit"; then
+  N=2
+elif printf '%s' "$PROMPT" | grep -q "image_gen exactly once with aspect_ratio=16:9"; then
+  N=1
+else
+  echo "unexpected prompt: $PROMPT" >&2
+  exit 9
+fi
+ENCODED=$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1],safe=""))' "$CWD")
+DEST="$HOME/.grok/sessions/$ENCODED/mock-sid/images"
+mkdir -p "$DEST"
+printf 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC' \
+  | base64 -d > "$DEST/$N.jpg"
+printf '%s\n' "$DEST/$N.jpg"
+FAKE
+  chmod +x "${BIN}/grok"
+  cat > "${BIN}/codex" <<'FAKE'
+#!/usr/bin/env bash
+[ -n "${FAKE_CODEX_CALLED:-}" ] && : > "$FAKE_CODEX_CALLED"
+exit 99
+FAKE
+  chmod +x "${BIN}/codex"
+}
+
+echo "== Test 11: --backend grok image_gen succeeds without calling codex =="
+make_sandbox
+make_grok_mock
+FAKE_CODEX_CALLED="${SANDBOX}/codex-called"
+FAKE_GROK_PROMPT_LOG="${SANDBOX}/grok-prompt.txt"
+HOME="${SANDBOX}/home" PATH="${BIN}:$PATH" GROK_BIN="${BIN}/grok" \
+  FAKE_CODEX_CALLED="$FAKE_CODEX_CALLED" FAKE_GROK_PROMPT_LOG="$FAKE_GROK_PROMPT_LOG" \
+  bash "$IMAGEN" "$PROMPT_FILE" "$TARGET" "16:9" --backend grok > "${SANDBOX}/out.log" 2>&1
+rc=$?
+[ "$rc" = "0" ] && ok "grok image_gen exits 0" || bad "grok image_gen rc=$rc"
+grep -q "SUCCESS" "${SANDBOX}/out.log" && ok "SUCCESS reported" || bad "no SUCCESS line"
+is_png "$TARGET" && ok "target is a valid PNG" || bad "target is not a PNG"
+grep -q "grok image_gen" "${SANDBOX}/out.log" && ok "source reports grok image_gen" || bad "wrong source"
+[ ! -e "$FAKE_CODEX_CALLED" ] && ok "codex was not called" || bad "codex was called"
+python3 -c 'import shutil,sys;shutil.rmtree(sys.argv[1])' "$SANDBOX"
+
+echo "== Test 12: --backend grok --ref uses image_edit =="
+make_sandbox
+make_grok_mock
+REF_OK="${SANDBOX}/ref.png"
+printf 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC' | base64 -d > "$REF_OK"
+FAKE_CODEX_CALLED="${SANDBOX}/codex-called"
+FAKE_GROK_PROMPT_LOG="${SANDBOX}/grok-prompt.txt"
+HOME="${SANDBOX}/home" PATH="${BIN}:$PATH" GROK_BIN="${BIN}/grok" \
+  FAKE_CODEX_CALLED="$FAKE_CODEX_CALLED" FAKE_GROK_PROMPT_LOG="$FAKE_GROK_PROMPT_LOG" \
+  bash "$IMAGEN" "$PROMPT_FILE" "$TARGET" "16:9" --backend grok --ref "$REF_OK" \
+  > "${SANDBOX}/out.log" 2>&1
+rc=$?
+[ "$rc" = "0" ] && ok "grok image_edit exits 0" || bad "grok image_edit rc=$rc"
+grep -q "grok image_edit" "${SANDBOX}/out.log" && ok "source reports grok image_edit" || bad "wrong source"
+grep -q "image_edit exactly once" "$FAKE_GROK_PROMPT_LOG" && ok "prompt requested image_edit" || bad "image_edit instruction missing"
+[ ! -e "$FAKE_CODEX_CALLED" ] && ok "codex was not called" || bad "codex was called"
+python3 -c 'import shutil,sys;shutil.rmtree(sys.argv[1])' "$SANDBOX"
+
 echo ""
 echo "RESULT: PASS=${PASS} FAIL=${FAIL}"
 [ "$FAIL" -eq 0 ]
