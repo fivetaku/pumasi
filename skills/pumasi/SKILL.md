@@ -130,6 +130,25 @@ Claude가 직접 코딩  Claude가 시그니처+요구사항 작성
 
 **데이터 모델 설계 원칙**: 타입/인터페이스는 Claude가 설계. 구현 로직은 Codex가 작성.
 
+### Phase 0.5: 워커 선택 (AskUserQuestion 필수 — 스킵 조건 있음)
+
+기획 승인을 받는 **같은 AskUserQuestion 콜의 `questions` 배열**에 워커 선택 문항을 포함한다 (블로킹 질문을 늘리지 않기 위해 별도 콜 금지). 텍스트로 묻지 말 것.
+
+**스킵 조건**: 사용자가 요청에서 워커를 이미 지명한 경우("grok으로", "codex한테", "agy 외주") — 지명된 워커를 그대로 쓰고 묻지 않는다.
+
+문항 구성:
+- header: "외주 워커"
+- question: "어떤 CLI 워커에게 외주를 맡길까요?"
+- options (4개):
+  1. **Codex (권장)** — 기본 워커. `--output-schema` 구조화 보고(report.json) 지원, 기본 샌드박스
+  2. **Grok** — xAI Grok Build (grok-4.6). SuperGrok 구독이면 한계비용 0. report.json 없이 output.txt 통합
+  3. **혼합** — 태스크 성격별로 codex/grok/agy/gjc 나눠 배정 (배정안은 Claude가 제안 후 config에 task별 `command:`로 반영)
+  4. **agy / gjc** — 디자인·UI는 Antigravity(agy), 멀티모델은 gajae-code(gjc)
+
+선택 결과는 Phase 2에서 `.pumasi/pumasi.config.yaml`의 `defaults.command:`(혼합이면 task별 `command:`)에 반영한다. 각 워커의 정확한 command 문자열은 아래 **"외주 워커 교체"** 절의 것을 그대로 쓴다.
+
+**선택 직후 설치 확인 1회**: `command -v <cli>` (grok은 실패 시 `$HOME/.grok/bin/grok` 폴백 — 셸 프로필 PATH라 비대화형에서 안 잡힐 수 있음). 미설치면 사용자에게 알리고 codex로 폴백한다.
+
 ### Phase 1: 분석 (Claude)
 
 요청을 받으면 **독립적으로 병렬 실행 가능한** 서브태스크로 분해.

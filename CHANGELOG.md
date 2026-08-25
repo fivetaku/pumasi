@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.15.0 — 2026-08-26
+
+- **워커/백엔드 선택 AskUserQuestion 추가.** v1.13.0(grok 워커)·v1.14.0(`--backend grok`)으로 실행 경로는 이미 있었지만 SKILL 플로우에 질문 단계가 없어 항상 codex 기본값으로 직행하던 문제를 수정.
+  - `/pumasi`(코드): Phase 0.5 신설 — 기획 승인과 **같은 AskUserQuestion 콜**에 워커 문항(Codex 권장 / Grok / 혼합 / agy·gjc) 포함. 사용자가 요청에서 워커를 지명했으면 스킵. 선택 직후 `command -v` 설치 확인(grok은 `~/.grok/bin/grok` 폴백), 미설치면 codex 폴백.
+  - `/pumasi:image`: Step 3 질문 배치 0순위에 백엔드 문항(Codex gpt-image-2 권장 / Grok image_gen — SuperGrok 0원, 비율 9:16·16:9·1:1 한정) 추가. Grok 선택 시 비율 선택지 3종 제한 + 퀄리티 질문 스킵. Step 6에 `--backend` 인자 문서화.
+- **grok 백엔드 확장자 오표기 수정.** grok 산출물(JPEG)을 `.png` 이름 그대로 복사하던 것을, 소스 확장자와 다르면 타깃 확장자를 자동 조정하고 최종 경로를 `path:`로 보고하도록 수정. 회귀 테스트 갱신(32/32 통과).
+
 ## 1.13.0 — 2026-08-23
 
 - **Grok CLI(`grok`)를 외주 워커로 추가.** `defaults.command` 또는 task별 `command`에 지정하면 바로 쓸 수 있다 — 품앗이는 command 문자열 방식이라 코드 변경 없이 설정만으로 동작한다.

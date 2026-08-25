@@ -16,7 +16,7 @@ description: This skill should be used when the user asks to "/pumasi:image", "�
 
 ## 핵심 원칙
 
-1. **백엔드는 Codex CLI 단일** — nanobanana 등 다른 백엔드 사용 안 함. 호출은 항상 `imagen.sh`/`imagen-full.sh`를 경유한다(프록시 우회·실패 사유 표면화가 그 안에 있다). `codex exec`를 직접 부르지 말 것
+1. **백엔드는 2종 — Codex(기본)·Grok** — nanobanana 등 다른 백엔드 사용 안 함. 백엔드는 Step 3에서 AskUserQuestion으로 사용자가 고른다(입력에 지명이 있으면 스킵). 호출은 항상 `imagen.sh`/`imagen-full.sh`를 경유한다(프록시 우회·실패 사유 표면화·grok 분기가 그 안에 있다). `codex exec`/`grok`을 직접 부르지 말 것
 2. **image-studio 시스템 프롬프트 내면화** — 모드 분류 + Output Template 작성
 3. **후처리 절대 금지** — sips/ImageMagick/재인코딩 금지, 원본 SHA1 유지
 4. **저장 경로 고정** — `images/{YYYY-MM-DD}/{slug}-{seq}.png`
@@ -102,9 +102,12 @@ codex features enable image_generation
 
 `${CLAUDE_PLUGIN_ROOT}/skills/image/references/clarification-matrix.md`를 Read하여 모드별 의도 파악 카테고리 3개를 확정한다.
 
-**질문 순서**:
-1. 비율 (Step 2에서 확정됐으면 스킵)
-2. 퀄리티 (Step 2에서 확정됐으면 스킵)
+**질문 순서** (한 콜 최대 4문항 — 초과분은 우선순위 낮은 의도 질문부터 잘라낸다):
+0. **백엔드** (입력에 "그록으로"/"grok"/"코덱스로"/"codex" 지명이 있으면 스킵)
+   - header: "생성 백엔드"
+   - options: ① **Codex gpt-image-2 (권장)** — 임의 비율, 한글/영문 텍스트 렌더 강함 ② **Grok image_gen** — SuperGrok 구독 시 한계비용 0. 단 **비율 9:16/16:9/1:1만** 지원(그 외는 1:1로 강제), 텍스트 렌더는 gpt-image-2 대비 미검증
+1. 비율 (Step 2에서 확정됐으면 스킵. **Grok 선택 시 선택지를 9:16/16:9/1:1로 제한**)
+2. 퀄리티 (Step 2에서 확정됐으면 스킵. Grok에는 퀄리티 파라미터가 없으므로 Grok 선택 시 스킵)
 3~5. 의도 파악 3개 (모드 매트릭스 기반)
 
 **질문 원칙 (딸깍 방식)**:
@@ -167,7 +170,7 @@ BASE_DIR=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
   - 예: "부산 광안대교 야경" → `busan-gwangan-bridge-night`
   - 예: "AI 마켓플레이스 로고" → `ai-marketplace-logo`
 - 중복 회피: 같은 날짜/slug가 이미 있으면 `-01`, `-02` 순번 추가
-- 확장자: `.png`
+- 확장자: `.png` (Grok 백엔드는 산출물이 보통 JPEG — 확장자가 다르면 imagen.sh가 타깃 확장자를 소스에 맞춰 자동 조정하고 최종 경로를 `path:`로 보고하므로, **결과 보고는 스크립트 출력의 `path:`를 기준**으로 한다)
 
 **왜 git root 기준인가**:
 - Claude Code 세션의 cwd는 항상 프로젝트 루트가 아닐 수 있다 (홈 디렉토리일 때도 있음)
@@ -205,8 +208,11 @@ bash ${CLAUDE_PLUGIN_ROOT}/skills/image/scripts/imagen.sh \
   "{prompt_file_path}" \
   "{target_image_path}" \
   "{aspect e.g. 16:9 — 생략 가능}" \
+  --backend "{codex|grok — Step 3 선택 결과, 생략 시 codex}" \
   --ref "{anchor_image_path — 생략 가능, 반복 가능}"
 ```
+
+**`--backend grok` (Step 3에서 Grok 선택 시)**: `grok` 헤드리스(`image_gen`)로 생성한다. 비율은 9:16/16:9/1:1만 유효(그 외는 스크립트가 1:1로 강제 + 경고). `--ref`를 주면 `image_edit`(레퍼런스 편집)로 동작한다. 사전 조건: grok CLI 설치(`$HOME/.grok/bin/grok`) + `grok login`. 미설치/미로그인이면 스크립트가 exit 3으로 실패하니 사용자에게 알리고 codex 재생성 여부를 확인한다. Step 4-bis(imagen-full.sh Codex 위임)는 codex 백엔드 전용이다.
 
 **`--ref` (스타일 앵커)**: 여러 장을 같은 스타일로 뽑을 때는 1장을 먼저 생성·승인받고, 나머지를 전부 그 파일을 `--ref`로 물려 생성한다(앵커 우선 패턴). 레퍼런스가 있으면 프롬프트에서 스타일 서술을 걷어내고 "첨부 이미지의 스타일·조명·색감 유지" + 피사체·구도 델타만 쓴다 — 레퍼런스가 이미 묶은 것을 긴 산문으로 재서술하면 둘이 싸운다. 스타일 일관성 수단 서열(1차 출처 리서치 2026-08-22): 레퍼런스 이미지 ≫ 텍스트 재사용 ≫ seed(미신 — 어느 벤더도 프롬프트가 달라진 뒤의 재현을 보장하지 않음).
 
@@ -312,6 +318,7 @@ bash ${CLAUDE_PLUGIN_ROOT}/skills/image/scripts/imagen.sh \
 - Codex CLI 설치 (`command -v codex`)
 - Codex 로그인 완료
 - `codex features` 서브커맨드 사용 가능 (`codex features list`)
+- (Grok 백엔드 선택 시) grok CLI 설치(`$HOME/.grok/bin/grok`) + `grok login` (구독 세션, `XAI_API_KEY` 불필요)
 
 ---
 

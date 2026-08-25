@@ -257,7 +257,10 @@ HOME="${SANDBOX}/home" PATH="${BIN}:$PATH" GROK_BIN="${BIN}/grok" \
 rc=$?
 [ "$rc" = "0" ] && ok "grok image_gen exits 0" || bad "grok image_gen rc=$rc"
 grep -q "SUCCESS" "${SANDBOX}/out.log" && ok "SUCCESS reported" || bad "no SUCCESS line"
-is_png "$TARGET" && ok "target is a valid PNG" || bad "target is not a PNG"
+# 확장자 정합 계약: grok 산출물이 .jpg면 타깃 확장자도 .jpg로 조정되고 path: 로 보고된다
+SAVED=$(awk '/^  path:/{print $2}' "${SANDBOX}/out.log" | head -n1)
+case "$SAVED" in *.jpg) ok "target extension adjusted to .jpg" ;; *) bad "extension not adjusted (path: $SAVED)" ;; esac
+is_png "$SAVED" && ok "saved file has the mock image bytes" || bad "saved file missing/corrupt: $SAVED"
 grep -q "grok image_gen" "${SANDBOX}/out.log" && ok "source reports grok image_gen" || bad "wrong source"
 [ ! -e "$FAKE_CODEX_CALLED" ] && ok "codex was not called" || bad "codex was called"
 python3 -c 'import shutil,sys;shutil.rmtree(sys.argv[1])' "$SANDBOX"

@@ -126,6 +126,15 @@ if [[ "$BACKEND" == "grok" ]]; then
     exit 5
   fi
 
+  # 확장자 정합: grok은 보통 JPEG를 내놓는다. 소스 확장자와 타깃 확장자가 다르면
+  # 내용물 오표기(.png 이름의 JPEG)를 막기 위해 타깃 확장자를 소스에 맞춘다.
+  SRC_EXT=$(printf '%s' "${GROK_SOURCE##*.}" | tr '[:upper:]' '[:lower:]')
+  TGT_EXT=$(printf '%s' "${TARGET_PATH##*.}" | tr '[:upper:]' '[:lower:]')
+  if [[ "$SRC_EXT" != "$TGT_EXT" ]]; then
+    NEW_TARGET="${TARGET_PATH%.*}.${SRC_EXT}"
+    echo "[imagen.sh] NOTE: grok 산출물이 .${SRC_EXT}라 저장 경로를 조정: $NEW_TARGET"
+    TARGET_PATH="$NEW_TARGET"
+  fi
   cp "$GROK_SOURCE" "$TARGET_PATH"
   SOURCE_DESC="grok $GROK_MODE ($GROK_SOURCE)"
   rm -rf "$WORK"
