@@ -23,7 +23,7 @@ ok()  { PASS=$((PASS+1)); printf '  \033[0;32m✓\033[0m %s\n' "$1"; }
 bad() { FAIL=$((FAIL+1)); printf '  \033[0;31m✗\033[0m %s\n     %s\n' "$1" "$2"; }
 
 FAKEBIN="$TMP/bin"; mkdir -p "$FAKEBIN"
-for name in codex grok agy gjc; do
+for name in codex grok agy gjc cursor-agent; do
   cat > "$FAKEBIN/$name" <<EOF
 #!/bin/bash
 : > "\$FAKE_ARGV_FILE"
@@ -106,6 +106,22 @@ if [ -s "$F" ]; then
   case "$(last_arg "$F")" in *PROMPT_BODY*) true;; *) false;; esac && ok "gjc 프롬프트 위치" \
     || bad "gjc 프롬프트 위치" "got: $(last_arg "$F")"
 else bad "gjc 실행" "argv 기록 없음"; fi
+
+echo "[cursor — 이름에 'codex'가 없는데도 전용 플래그가 새면 안 됨]"
+F=$(run_cmd cursor-agent "cursor-agent -p --force --model composer-2.5 --output-format text")
+if [ -s "$F" ]; then
+  ! has_arg "$F" "--output-schema" \
+    && ok "cursor-agent에 --output-schema 미주입" \
+    || bad "codex 전용 플래그 누출" "cursor-agent에 --output-schema가 붙었다"
+  ! has_arg "$F" "-o" && ok "cursor-agent에 -o 미주입" \
+    || bad "codex 전용 -o 누출" "cursor-agent에 -o가 붙었다"
+  has_arg "$F" "--force" && ok "--force 보존 (없으면 디렉터리 신뢰 프롬프트에서 즉사)" \
+    || bad "--force 유실" "신뢰 프롬프트에서 비대화형 정지한다"
+  has_arg "$F" "composer-2.5" && ok "--model 값 보존" || bad "--model 유실" "모델 핀이 사라졌다"
+  case "$(last_arg "$F")" in *PROMPT_BODY*) true;; *) false;; esac \
+    && ok "cursor 프롬프트가 마지막 positional" \
+    || bad "cursor 프롬프트 위치" "got: $(last_arg "$F")"
+else bad "cursor-agent 실행" "argv 기록 없음"; fi
 
 echo "[config YAML 파싱 — grok command가 문법적으로 유효한가]"
 for cfg in "$PLUGIN_DIR/pumasi.config.yaml"; do

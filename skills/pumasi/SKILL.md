@@ -344,12 +344,18 @@ pumasi:
   **`claude-opus-5-thinking-high` / `claude-fable-5-thinking-high`** 까지 지정 가능 —
   Claude Max 쿼터 소진 시 Cursor 구독으로 Opus/Fable 작업을 잇는 우회 경로가 된다. 목록: `cursor-agent --list-models`.
 - 프롬프트는 마지막 positional 인자로 자동 전달(품앗이 규격 그대로). `-p`(print) + `--output-format text` 필수.
-- **`--force` 필수** — 없으면 신뢰 확인 프롬프트에서 멈춘다(비대화형 즉사). `--yolo`는 `--force`의 별칭.
+- **`--force` 필수** — 없으면 "Do you trust the contents of this directory?"에서 멈춘다(비대화형 즉사).
+  CLI 안내대로 `--trust` / `--yolo` / `-f` 중 아무거나면 되고, `--yolo`는 `--force`의 별칭이다.
+  (실측 2026-08-27: 신뢰 이력 없는 새 디렉터리에서 `--force`만으로 통과, 없으면 파일 생성 0건으로 정지)
 - codex 전용 `--output-schema/-o` 미주입 → `report.json` 없이 `output.txt` 기반 통합 (graceful).
-- 실측(2026-08-27, 2026.08.25 빌드): `-p --force`로 파일 생성·셸 실행 정상, 비-TTY stdout 정상.
+- 실측 E2E(2026-08-27, 2026.08.25 빌드): 워커 2개 동시 실행(하나는 `--model composer-2.5`, 하나는 기본)
+  **둘 다 exit 0, 게이트 4/4 통과, 소요 47~59초**, `output.txt` 정상 회수. `report.json`은 예상대로 미생성.
 - ⚠️ **훅 충돌 주의**: Orca 등이 `~/.cursor/hooks.json`에 preToolUse 훅을 심어두면 참조 스크립트가 사라졌을 때
   "환경 훅 오류로 파일 생성 차단"으로 전 작업이 실패한다. 워커가 이 에러를 내면 `~/.cursor/hooks.json`을 확인한다.
-- 인증: `cursor-agent status`로 확인 (IDE 로그인 공유). 설치: Cursor 앱이 `~/.local/bin/cursor-agent`로 배포.
+- 인증: `cursor-agent status`로 확인 (IDE 로그인 공유). 자동화·CI는 `CURSOR_API_KEY` 환경변수.
+- 설치: `curl https://cursor.com/install -fsS | bash` → `~/.local/bin/`에 배포된다.
+  같은 바이너리가 `agent`라는 이름으로도 심링크되지만, **`agent`는 grok CLI(`~/.grok/bin/agent`)와 이름이 충돌**하므로
+  품앗이 config에는 반드시 `cursor-agent`(또는 절대경로)를 쓴다.
 
 **gajae-code(`gjc`)** — 멀티모델 코딩 CLI (`Yeachan-Heo/gajae-code`):
 ```yaml

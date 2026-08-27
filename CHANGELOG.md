@@ -7,8 +7,10 @@
   command: "cursor-agent -p --force --output-format text"
   ```
   - **모델 선택이 최대 강점**: `--model`로 `composer-2.5`, `gpt-5.3-codex-*`, **`claude-opus-5-thinking-high`/`claude-fable-5-thinking-high`** 지정 가능 — Claude Max 쿼터 소진 시 Cursor 구독으로 Opus/Fable 작업을 잇는 우회 경로.
-  - `--force` 필수(없으면 디렉토리 신뢰 프롬프트에서 비대화형 즉사). codex 전용 `--output-schema` 미주입 → output.txt 기반 통합(graceful).
-  - 실측(2026-08-27, 2026.08.25 빌드): `-p --force` 파일 생성·셸 실행 정상, 비-TTY stdout 정상.
+  - `--force` 필수 — 없으면 "Do you trust the contents of this directory?"에서 비대화형 즉사(파일 생성 0건). CLI 안내대로 `--trust`/`--yolo`/`-f` 중 아무거나면 된다. codex 전용 `--output-schema` 미주입 → output.txt 기반 통합(graceful).
+  - **실측 E2E(2026-08-27, 2026.08.25 빌드)**: 워커 2개 동시 실행(`--model composer-2.5` + 기본) 둘 다 exit 0, 게이트 4/4 통과, 47~59초, `output.txt` 정상 회수, `report.json` 미생성(설계대로).
+  - 회귀 테스트에 `cursor-agent` 케이스 추가 — 이름에 `codex`가 없어도 전용 플래그가 새지 않는지, `--force`/`--model`이 보존되는지, 프롬프트가 마지막 positional로 가는지 고정. **18/18 통과**.
+  - 설치 안내 교정: `curl https://cursor.com/install -fsS | bash`. 동일 바이너리가 `agent`로도 심링크되지만 grok CLI(`~/.grok/bin/agent`)와 이름이 충돌하므로 config에는 `cursor-agent`를 쓴다.
   - ⚠️ 훅 충돌: Orca 등이 남긴 `~/.cursor/hooks.json` preToolUse 잔재가 있으면 "환경 훅 오류" 로 전 작업 실패 — 트러블슈팅 명시.
   - 워커 선택 AskUserQuestion(Phase 0.5) 선택지와 "외주 워커 교체" 절에 반영. `pumasi.config.yaml`에 `cursor`/`cursor-opus` 예시 command 주석 추가.
 
