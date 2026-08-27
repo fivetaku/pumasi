@@ -5,6 +5,13 @@ pumasi:
   #                # xAI Grok Build. 샌드박스가 기본 off라 workspace로 조이고, 자동 업데이터를 끈다.
   # gajae-code   : "gjc --print"                            # 멀티모델 코딩 CLI. 프롬프트가 --print 뒤 positional(MESSAGE)로 전달됨
   # antigravity  : "agy --dangerously-skip-permissions -p"  # Gemini CLI 후계 (디자인/UI)
+  # cursor       : "cursor-agent -p --force --output-format text"
+  #                # Cursor Ultra 구독. --model로 모델 지정 가능:
+  #                #   composer-2.5 (빠른 편집·기본값 급) / gpt-5.3-codex-high (코덱스 계열)
+  #                #   claude-opus-5-thinking-high, claude-fable-5-thinking-high (Claude 쿼터 우회!)
+  #                # 예: "cursor-agent -p --force --model composer-2.5 --output-format text"
+  # cursor-opus  : "cursor-agent -p --force --model claude-opus-5-thinking-high --output-format text"
+  #                # Claude Max 쿼터 소진 시 Opus 대체 경로
   # ※ codex 외 CLI는 --output-schema 미지원 → report.json 없이 output.txt 기반 통합 (graceful)
   # ※ task별로 다른 command 지정 가능 → 모듈마다 다른 CLI에 병렬 외주
   defaults:

@@ -142,8 +142,8 @@ Claude가 직접 코딩  Claude가 시그니처+요구사항 작성
 - options (4개):
   1. **Codex (권장)** — 기본 워커. `--output-schema` 구조화 보고(report.json) 지원, 기본 샌드박스
   2. **Grok** — xAI Grok Build (grok-4.6). SuperGrok 구독이면 한계비용 0. report.json 없이 output.txt 통합
-  3. **혼합** — 태스크 성격별로 codex/grok/agy/gjc 나눠 배정 (배정안은 Claude가 제안 후 config에 task별 `command:`로 반영)
-  4. **agy / gjc** — 디자인·UI는 Antigravity(agy), 멀티모델은 gajae-code(gjc)
+  3. **혼합** — 태스크 성격별로 codex/grok/cursor/agy/gjc 나눠 배정 (배정안은 Claude가 제안 후 config에 task별 `command:`로 반영)
+  4. **Cursor / agy / gjc** — Cursor Ultra 구독이면 cursor-agent(Composer·Codex·**Claude Opus/Fable까지** 선택 가능), 디자인·UI는 Antigravity(agy), 멀티모델은 gajae-code(gjc)
 
 선택 결과는 Phase 2에서 `.pumasi/pumasi.config.yaml`의 `defaults.command:`(혼합이면 task별 `command:`)에 반영한다. 각 워커의 정확한 command 문자열은 아래 **"외주 워커 교체"** 절의 것을 그대로 쓴다.
 
@@ -311,7 +311,7 @@ command -v codex  # 설치 확인
 # 없으면: npm install -g @openai/codex
 ```
 
-**외주 워커 교체 (선택) — Grok(`grok`) / gajae-code(`gjc`) / Antigravity CLI(`agy`)**:
+**외주 워커 교체 (선택) — Grok(`grok`) / Cursor(`cursor-agent`) / gajae-code(`gjc`) / Antigravity CLI(`agy`)**:
 기본 워커는 Codex지만, task의 `command:` 또는 `defaults.command:`를 바꾸면 다른 CLI로 외주할 수 있다.
 프롬프트는 항상 명령의 **마지막 positional 인자**로 자동 전달되므로, 그 형태로 끝나는 명령이면 된다.
 
@@ -332,6 +332,24 @@ pumasi:
 - ⚠️ **PATH 주의**: `~/.grok/bin/grok`에 설치되고 셸 프로필을 통해 PATH에 들어간다.
   비대화형 셸에서 `command -v grok`이 실패하면 절대경로(`$HOME/.grok/bin/grok`)로 지정한다.
 - 설치: `curl -fsSL https://x.ai/cli/install.sh | bash` (원격 스크립트 즉시 실행 — 내용을 먼저 확인하려면 `-o`로 받아서 읽고 실행).
+
+**Cursor CLI(`cursor-agent`)** — Cursor Ultra 구독 워커 (Composer/Codex/Claude 멀티모델):
+```yaml
+pumasi:
+  defaults:
+    command: "cursor-agent -p --force --output-format text"
+    # 모델 핀 예: "cursor-agent -p --force --model composer-2.5 --output-format text"
+```
+- **모델 선택이 최대 강점**: `--model`로 `composer-2.5`(빠른 편집), `gpt-5.3-codex-*` 계열,
+  **`claude-opus-5-thinking-high` / `claude-fable-5-thinking-high`** 까지 지정 가능 —
+  Claude Max 쿼터 소진 시 Cursor 구독으로 Opus/Fable 작업을 잇는 우회 경로가 된다. 목록: `cursor-agent --list-models`.
+- 프롬프트는 마지막 positional 인자로 자동 전달(품앗이 규격 그대로). `-p`(print) + `--output-format text` 필수.
+- **`--force` 필수** — 없으면 신뢰 확인 프롬프트에서 멈춘다(비대화형 즉사). `--yolo`는 `--force`의 별칭.
+- codex 전용 `--output-schema/-o` 미주입 → `report.json` 없이 `output.txt` 기반 통합 (graceful).
+- 실측(2026-08-27, 2026.08.25 빌드): `-p --force`로 파일 생성·셸 실행 정상, 비-TTY stdout 정상.
+- ⚠️ **훅 충돌 주의**: Orca 등이 `~/.cursor/hooks.json`에 preToolUse 훅을 심어두면 참조 스크립트가 사라졌을 때
+  "환경 훅 오류로 파일 생성 차단"으로 전 작업이 실패한다. 워커가 이 에러를 내면 `~/.cursor/hooks.json`을 확인한다.
+- 인증: `cursor-agent status`로 확인 (IDE 로그인 공유). 설치: Cursor 앱이 `~/.local/bin/cursor-agent`로 배포.
 
 **gajae-code(`gjc`)** — 멀티모델 코딩 CLI (`Yeachan-Heo/gajae-code`):
 ```yaml

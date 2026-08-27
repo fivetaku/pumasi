@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.16.0 — 2026-08-27
+
+- **Cursor CLI(`cursor-agent`)를 외주 워커로 추가.** Cursor Ultra 구독을 품앗이 워커로 활용한다 — command 문자열 방식이라 코드 변경 없이 설정만으로 동작.
+  ```yaml
+  command: "cursor-agent -p --force --output-format text"
+  ```
+  - **모델 선택이 최대 강점**: `--model`로 `composer-2.5`, `gpt-5.3-codex-*`, **`claude-opus-5-thinking-high`/`claude-fable-5-thinking-high`** 지정 가능 — Claude Max 쿼터 소진 시 Cursor 구독으로 Opus/Fable 작업을 잇는 우회 경로.
+  - `--force` 필수(없으면 디렉토리 신뢰 프롬프트에서 비대화형 즉사). codex 전용 `--output-schema` 미주입 → output.txt 기반 통합(graceful).
+  - 실측(2026-08-27, 2026.08.25 빌드): `-p --force` 파일 생성·셸 실행 정상, 비-TTY stdout 정상.
+  - ⚠️ 훅 충돌: Orca 등이 남긴 `~/.cursor/hooks.json` preToolUse 잔재가 있으면 "환경 훅 오류" 로 전 작업 실패 — 트러블슈팅 명시.
+  - 워커 선택 AskUserQuestion(Phase 0.5) 선택지와 "외주 워커 교체" 절에 반영. `pumasi.config.yaml`에 `cursor`/`cursor-opus` 예시 command 주석 추가.
+
 ## 1.15.0 — 2026-08-26
 
 - **워커/백엔드 선택 AskUserQuestion 추가.** v1.13.0(grok 워커)·v1.14.0(`--backend grok`)으로 실행 경로는 이미 있었지만 SKILL 플로우에 질문 단계가 없어 항상 codex 기본값으로 직행하던 문제를 수정.
