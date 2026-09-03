@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.16.1 (2026-09-04)
+
+- README(en/ko)에 `/pumasi:image` 이미지 생성 스킬 섹션 추가 — plugin.json이 광고하는 기능 절반이 README에 없었음(Codex gpt-image-2 / Grok image_gen 백엔드, 비율·텍스트 렌더 특성)
+- Requirements의 워커 목록 보강: Codex(기본) 외 Grok·Cursor CLI(cursor-agent)·Antigravity(agy)·gajae-code(gjc) 대체/혼합 워커 4종 — SKILL.md엔 있었으나 README는 Grok만 언급
+- (kkirikkiri E2E 감사 확정 발견 반영)
+
+
 ## 1.16.0 — 2026-08-27
 
 - **Cursor CLI(`cursor-agent`)를 외주 워커로 추가.** Cursor Ultra 구독을 품앗이 워커로 활용한다 — command 문자열 방식이라 코드 변경 없이 설정만으로 동작.

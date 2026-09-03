@@ -153,6 +153,10 @@ Round 2: Round 1 결과 사용 태스크 (M개 병렬)
 Round 3: 최종 통합              (Claude 직접)
 ```
 
+### 이미지 생성 — `/pumasi:image`
+
+품앗이에는 이미지 생성 스킬도 들어 있습니다(플러그인의 나머지 절반). "썸네일/로고/포스터/배너 만들어줘" 또는 `/pumasi:image`라고 하면 **Codex `gpt-image-2`(기본 — 임의 비율, 한글·영문 텍스트 렌더 강함)** 또는 **Grok `image_gen`(SuperGrok 구독 시 한계비용 0, 단 9:16·16:9·1:1만)** 으로 생성합니다. 백엔드는 지명하지 않으면 질문 1번으로 고르고, 결과는 프로젝트 로컬 경로에 파일로 저장됩니다(클립보드 붙이기·base64 없음).
+
 ### 커맨드
 
 ```bash
@@ -180,8 +184,8 @@ pumasi.sh clean [JOB_DIR]
 ## 요구사항
 
 - [Claude Code](https://docs.anthropic.com/claude-code) CLI
-- [Codex CLI](https://github.com/openai/codex) — `npm install -g @openai/codex`
-- (선택) [Grok CLI](https://docs.x.ai/build/overview) — `curl -fsSL https://x.ai/cli/install.sh | bash`
+- [Codex CLI](https://github.com/openai/codex) — `npm install -g @openai/codex` (기본 워커)
+- 선택 — 태스크별로 바꿔 쓸 수 있는 대체 워커: [Grok CLI](https://docs.x.ai/build/overview) (`curl -fsSL https://x.ai/cli/install.sh | bash`), Cursor CLI `cursor-agent`(Cursor Ultra 구독 시 Composer·Codex·Claude Opus/Fable 선택), Antigravity CLI `agy`(디자인·UI), gajae-code `gjc`(멀티모델). 미설치면 Codex로 폴백.
 - Node.js 18+
 - OpenAI API 키 (Codex 실행용)
 

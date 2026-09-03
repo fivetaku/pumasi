@@ -153,6 +153,10 @@ Round 2: Tasks that depend on Round 1 (M tasks in parallel)
 Round 3: Final integration          (Claude direct)
 ```
 
+### Image generation — `/pumasi:image`
+
+pumasi also ships an image-generation skill (the plugin's second half). Say "make a thumbnail / logo / poster / banner" or `/pumasi:image` and it generates images through **Codex `gpt-image-2` (default — any aspect ratio, strong Korean/English text rendering)** or **Grok `image_gen` (zero marginal cost on SuperGrok; 9:16 / 16:9 / 1:1 only)**. The backend is chosen in one question unless you name it. Images are saved to a project-local path — no clipboard paste, no base64 in the transcript.
+
 ### Commands
 
 ```bash
@@ -180,8 +184,8 @@ pumasi.sh clean [JOB_DIR]
 ## Requirements
 
 - [Claude Code](https://docs.anthropic.com/claude-code) CLI
-- [Codex CLI](https://github.com/openai/codex) — `npm install -g @openai/codex`
-- (optional) [Grok CLI](https://docs.x.ai/build/overview) — `curl -fsSL https://x.ai/cli/install.sh | bash`
+- [Codex CLI](https://github.com/openai/codex) — `npm install -g @openai/codex` (default worker)
+- Optional alternative/mixable workers — pick per task at run time: [Grok CLI](https://docs.x.ai/build/overview) (`curl -fsSL https://x.ai/cli/install.sh | bash`), Cursor CLI `cursor-agent` (Composer / Codex / Claude Opus·Fable routing on Cursor Ultra), Antigravity CLI `agy` (design·UI), gajae-code `gjc` (multi-model). Missing ones fall back to Codex.
 - Node.js 18+
 - OpenAI API key (for Codex)
 
