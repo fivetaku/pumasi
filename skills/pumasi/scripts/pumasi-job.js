@@ -10,7 +10,7 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { spawn } = require('child_process');
+const { spawn, execFileSync } = require('child_process');
 
 const SCRIPT_DIR = __dirname;
 const SKILL_DIR = path.resolve(SCRIPT_DIR, '..');
@@ -738,8 +738,12 @@ function cmdGates(options, jobDir) {
     for (const gate of gates) {
       const startTime = Date.now();
       try {
-        const { execSync } = require('child_process');
-        const output = execSync(gate.command, {
+        if (typeof gate.command !== 'string' || !gate.command.trim()) {
+          throw new Error('invalid gate command: must be a non-empty string');
+        }
+        const shell = process.platform === 'win32' ? 'cmd.exe' : '/bin/sh';
+        const shellArgs = process.platform === 'win32' ? ['/d', '/s', '/c', gate.command] : ['-c', gate.command];
+        const output = execFileSync(shell, shellArgs, {
           cwd: taskCwd,
           timeout: 30000,
           encoding: 'utf8',
