@@ -1,6 +1,6 @@
-# Claude vs Codex 역할 분리
+# 호스트 vs 워커 역할 분리
 
-## Claude가 제공하는 것 (instruction에 포함)
+## 호스트가 제공하는 것 (instruction에 포함)
 
 ```
 ✅ 타입/인터페이스 정의 (body 없이)
@@ -13,7 +13,7 @@
 ✅ 프로젝트 컨텍스트 (기술 스택, 디렉토리 구조)
 ```
 
-## Codex가 구현하는 것 (Claude가 작성 금지)
+## 워커가 구현하는 것 (호스트가 작성 금지)
 
 ```
 ❌ 함수/메서드 본문 (body)
@@ -28,16 +28,16 @@
 ## 경계선 예시
 
 ```
-Claude가 주는 것:
+호스트가 주는 것:
   export function generateToken(userId: string, role: string): string
   - jsonwebtoken 사용 (필수 import: import jwt from 'jsonwebtoken')
   - 만료: 7일
   - secret: process.env.JWT_SECRET
 
-Codex가 구현하는 것:
+워커가 구현하는 것:
   export function generateToken(userId: string, role: string): string {
     return jwt.sign({ userId, role }, process.env.JWT_SECRET!, { expiresIn: '7d' })
   }
 ```
 
-Claude는 **위쪽만** 작성한다. 아래쪽은 Codex가 채운다.
+호스트는 **위쪽만** 작성한다. 아래쪽은 워커가 채운다.

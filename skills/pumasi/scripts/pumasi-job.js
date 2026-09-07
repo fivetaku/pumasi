@@ -20,6 +20,7 @@ const SKILL_CONFIG_FILE = path.join(SKILL_DIR, 'pumasi.config.yaml');
 const REPO_CONFIG_FILE = path.join(path.resolve(SKILL_DIR, '../..'), 'pumasi.config.yaml');
 
 const DEFAULT_CODEX_COMMAND = 'codex exec --dangerously-bypass-approvals-and-sandbox';
+const DEFAULT_CLAUDE_COMMAND = 'claude --print --permission-mode acceptEdits';
 const DEFAULT_TIMEOUT_SEC = 3600;
 
 function killProcess(pid) {
@@ -52,7 +53,7 @@ function parsePumasiConfig(configPath) {
   const fallback = {
     pumasi: {
       tasks: [],
-      defaults: { command: DEFAULT_CODEX_COMMAND },
+      defaults: {},
       settings: { timeout: DEFAULT_TIMEOUT_SEC },
     },
   };
@@ -92,7 +93,8 @@ function parsePumasiConfig(configPath) {
   const merged = {
     pumasi: {
       tasks: [],
-      defaults: { command: DEFAULT_CODEX_COMMAND, ...((pumasi.defaults && typeof pumasi.defaults === 'object') ? pumasi.defaults : {}) },
+      defaults: { ...((pumasi.defaults && typeof pumasi.defaults === 'object') ? pumasi.defaults : {}) },
+      host: pumasi.host,
       settings: { timeout: DEFAULT_TIMEOUT_SEC, max_retries: 2, ...((pumasi.settings && typeof pumasi.settings === 'object') ? pumasi.settings : {}) },
       context: { reference_files: [] },
     },
@@ -324,7 +326,7 @@ function computeStatusPayload(jobDir) {
 function parseArgs(argv) {
   const args = argv.slice(2);
   const out = { _: [] };
-  const booleanFlags = new Set(['json', 'text', 'checklist', 'help', 'h', 'verbose']);
+  const booleanFlags = new Set(['json', 'compact', 'text', 'checklist', 'help', 'h', 'verbose']);
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '--') { out._.push(...args.slice(i + 1)); break; }
@@ -345,7 +347,7 @@ function printHelp() {
   process.stdout.write(`품앗이 (Pumasi) — Codex 병렬 외주 개발
 
 Usage:
-  pumasi-job.sh start [--config path] [--jobs-dir path] [--round N] "project context"
+  pumasi-job.sh start [--host claude-code|omo|codex|other] [--config path] [--jobs-dir path] [--round N] "project context"
   pumasi-job.sh start-round --round N <jobDir>
   pumasi-job.sh status [--json|--text|--checklist] [--verbose] <jobDir>
   pumasi-job.sh wait [--cursor CURSOR] [--interval-ms N] [--timeout-ms N] <jobDir>
@@ -371,16 +373,21 @@ Before running: edit pumasi.config.yaml with your task list.
 
 function cmdStart(options, prompt) {
   const configPath = options.config || process.env.PUMASI_CONFIG || resolveDefaultConfigFile();
-  const jobsDir = options['jobs-dir'] || process.env.PUMASI_JOBS_DIR || path.join(SKILL_DIR, '.jobs');
-
-  ensureDir(jobsDir);
-
   const config = parsePumasiConfig(configPath);
+  const host = options.host || process.env.PUMASI_HOST || config.pumasi.host || 'claude-code';
+  if (!['claude-code', 'omo', 'codex', 'other'].includes(host)) {
+    exitWithError(`Unsupported host: ${host}. Use claude-code, omo, codex, or other.`);
+  }
+  const workingDir = options.cwd || process.env.PUMASI_CWD || process.cwd();
+  const jobsDir = options['jobs-dir'] || process.env.PUMASI_JOBS_DIR ||
+    (host === 'claude-code' ? path.join(SKILL_DIR, '.jobs') : path.join(workingDir, '.pumasi', 'jobs'));
+  ensureDir(jobsDir);
   const timeoutSetting = Number(config.pumasi.settings.timeout || DEFAULT_TIMEOUT_SEC);
   const timeoutOverride = options.timeout != null ? Number(options.timeout) : null;
   const timeoutSec = Number.isFinite(timeoutOverride) && timeoutOverride > 0 ? timeoutOverride : timeoutSetting;
 
-  const defaultCommand = config.pumasi.defaults.command || DEFAULT_CODEX_COMMAND;
+  const defaultCommand = config.pumasi.defaults.command ||
+    (host === 'claude-code' ? DEFAULT_CODEX_COMMAND : DEFAULT_CLAUDE_COMMAND);
 
   const rawTasks = config.pumasi.tasks || [];
   if (rawTasks.length === 0) {
@@ -410,7 +417,6 @@ function cmdStart(options, prompt) {
   ensureDir(membersDir);
 
   // CWD 결정: config에서 지정하거나 현재 디렉토리 사용
-  const workingDir = options.cwd || process.env.PUMASI_CWD || process.cwd();
 
   // 컨텍스트 + 프롬프트 합치기
   const contextString = buildContextString(config, workingDir);
@@ -420,6 +426,7 @@ function cmdStart(options, prompt) {
   const jobMeta = {
     id: `pumasi-${jobId}`,
     createdAt: new Date().toISOString(),
+    host,
     configPath,
     cwd: workingDir,
     maxRound,
@@ -436,6 +443,7 @@ function cmdStart(options, prompt) {
       gates: Array.isArray(t.gates) ? t.gates.map(g => ({
         name: String(g.name || 'unnamed'),
         command: String(g.command || ''),
+        ...(g.shared_readonly === true ? { shared_readonly: true } : {}),
       })).filter(g => g.command) : [],
     })),
   };
@@ -487,6 +495,7 @@ function cmdStart(options, prompt) {
   } else {
     process.stdout.write(`${jobDir}\n`);
   }
+  return jobDir;
 }
 
 function cmdStatus(options, jobDir) {
@@ -645,25 +654,33 @@ function cmdResults(options, jobDir) {
       const errorPath = path.join(membersRoot, entry, 'error.txt');
       const status = readJsonIfExists(statusPath);
       if (!status) continue;
-      const output = fs.existsSync(outputPath) ? fs.readFileSync(outputPath, 'utf8') : '';
-      const stderr = fs.existsSync(errorPath) ? fs.readFileSync(errorPath, 'utf8') : '';
+      const outputExists = fs.existsSync(outputPath);
+      const errorExists = fs.existsSync(errorPath);
+      const output = !options.compact && outputExists ? fs.readFileSync(outputPath, 'utf8') : '';
+      const stderr = !options.compact && errorExists ? fs.readFileSync(errorPath, 'utf8') : '';
       const gatesPath = path.join(membersRoot, entry, 'gates.json');
       const gatesResult = readJsonIfExists(gatesPath);
       const reportPath = path.join(membersRoot, entry, 'report.json');
       const report = readJsonIfExists(reportPath);
-      members.push({ safeName: entry, ...status, output, stderr, gates: gatesResult, report });
+      members.push({ safeName: entry, ...status, output, stderr, gates: gatesResult, report,
+        artifacts: { output: outputExists ? outputPath : null, stderr: errorExists ? errorPath : null } });
     }
   }
 
-  if (options.json) {
+  if (options.json || options.compact) {
     process.stdout.write(`${JSON.stringify({
       jobDir: resolvedJobDir,
       id: jobMeta ? jobMeta.id : null,
-      prompt: fs.existsSync(path.join(resolvedJobDir, 'prompt.txt'))
+      promptPath: options.compact && fs.existsSync(path.join(resolvedJobDir, 'prompt.txt'))
+        ? path.join(resolvedJobDir, 'prompt.txt') : undefined,
+      prompt: options.compact ? undefined : fs.existsSync(path.join(resolvedJobDir, 'prompt.txt'))
         ? fs.readFileSync(path.join(resolvedJobDir, 'prompt.txt'), 'utf8')
         : null,
       members: members
-        .map((m) => ({ member: m.member, state: m.state, exitCode: m.exitCode != null ? m.exitCode : null, message: m.message || null, output: m.output, stderr: m.stderr, gates: m.gates || null, report: m.report || null }))
+        .map((m) => ({ member: m.member, state: m.state, exitCode: m.exitCode != null ? m.exitCode : null,
+          message: m.message || null, output: options.compact ? undefined : m.output,
+          stderr: options.compact ? undefined : m.stderr, gates: m.gates || null, report: m.report || null,
+          artifacts: options.compact ? m.artifacts : undefined }))
         .sort((a, b) => String(a.member).localeCompare(String(b.member))),
     }, null, 2)}\n`);
     return;
@@ -707,6 +724,7 @@ function cmdGates(options, jobDir) {
 
   const membersRoot = path.join(resolvedJobDir, 'members');
   const results = {};
+  const sharedResults = new Map();
 
   for (const task of (jobMeta.tasks || [])) {
     const safeName = safeFileName(task.name);
@@ -736,6 +754,17 @@ function cmdGates(options, jobDir) {
     let allPassed = true;
 
     for (const gate of gates) {
+      const shareable = gate.shared_readonly === true && (jobMeta.tasks || []).every((member) => {
+        const state = readJsonIfExists(path.join(membersRoot, safeFileName(member.name), 'status.json'));
+        return state && state.state === 'done';
+      });
+      if (!shareable) sharedResults.clear();
+      const sharedKey = JSON.stringify([path.resolve(taskCwd), gate.command]);
+      const previous = shareable ? sharedResults.get(sharedKey) : null;
+      if (previous) {
+        gateResults.push({ ...previous.result, name: gate.name, durationMs: 0, sharedFrom: previous.task });
+        continue;
+      }
       const startTime = Date.now();
       try {
         const { execSync } = require('child_process');
@@ -762,6 +791,10 @@ function cmdGates(options, jobDir) {
           exitCode: err.status != null ? err.status : null,
           durationMs: Date.now() - startTime,
         });
+      }
+      const lastResult = gateResults[gateResults.length - 1];
+      if (shareable && lastResult.passed) {
+        sharedResults.set(sharedKey, { task: task.name, result: lastResult });
       }
     }
 
@@ -872,7 +905,8 @@ function cmdStartRound(options, jobDir) {
     const safeName = safeFileName(name);
     const memberDir = path.join(membersRoot, safeName);
     ensureDir(memberDir);
-    const command = String(task.command || DEFAULT_CODEX_COMMAND);
+    const command = String(task.command ||
+      (jobMeta.host && jobMeta.host !== 'claude-code' ? DEFAULT_CLAUDE_COMMAND : DEFAULT_CODEX_COMMAND));
 
     // Reset status for re-run
     atomicWriteJson(path.join(memberDir, 'status.json'), {
@@ -1035,7 +1069,8 @@ function cmdRedelegate(options, jobDir) {
   }
 
   // Reset status
-  const command = String(taskConfig.command || DEFAULT_CODEX_COMMAND);
+  const command = String(taskConfig.command ||
+    (jobMeta.host && jobMeta.host !== 'claude-code' ? DEFAULT_CLAUDE_COMMAND : DEFAULT_CODEX_COMMAND));
   atomicWriteJson(path.join(memberDir, 'status.json'), {
     member: taskName, state: 'queued',
     queuedAt: new Date().toISOString(), command,
@@ -1162,19 +1197,17 @@ function cmdStop(_options, jobDir) {
     const statusPath = path.join(membersRoot, entry, 'status.json');
     const status = readJsonIfExists(statusPath);
     if (!status || status.state !== 'running' || !status.pid) continue;
+    atomicWriteJson(path.join(membersRoot, entry, 'cancel-request.json'), {
+      pid: status.pid, requestedAt: new Date().toISOString(),
+    });
     killProcess(Number(status.pid)); stoppedAny = true;
   }
-  process.stdout.write(stoppedAny ? 'stop: 실행 중인 Codex에 SIGTERM 전송\n' : 'stop: 실행 중인 태스크 없음\n');
+  process.stdout.write(stoppedAny ? 'stop: 실행 중인 워커에 종료 신호 전송\n' : 'stop: 실행 중인 태스크 없음\n');
 }
 
 function cmdRunAll(options, prompt) {
   // Start round 1
-  cmdStart(options, prompt);
-
-  // Re-read the job dir from .last-job since cmdStart wrote to stdout
-  const jobsDir = options['jobs-dir'] || process.env.PUMASI_JOBS_DIR || path.join(SKILL_DIR, '.jobs');
-  const lastJobFile = path.join(jobsDir, '.last-job');
-  const jobDir = fs.readFileSync(lastJobFile, 'utf8').trim();
+  const jobDir = cmdStart(options, prompt);
   const resolvedJobDir = path.resolve(jobDir);
 
   const jobMeta = readJsonIfExists(path.join(resolvedJobDir, 'job.json'));
@@ -1273,7 +1306,13 @@ function main() {
 
   function resolveJobDir(arg) {
     if (arg) return arg;
-    const jobsDir = options['jobs-dir'] || process.env.PUMASI_JOBS_DIR || path.join(SKILL_DIR, '.jobs');
+    const workingDir = options.cwd || process.env.PUMASI_CWD || process.cwd();
+    const configPath = options.config || process.env.PUMASI_CONFIG || resolveDefaultConfigFile();
+    const host = options.host || process.env.PUMASI_HOST ||
+      (fs.existsSync(configPath) ? parsePumasiConfig(configPath).pumasi.host : null) || 'claude-code';
+    if (!['claude-code', 'omo', 'codex', 'other'].includes(host)) exitWithError(`Unsupported host: ${host}`);
+    const jobsDir = options['jobs-dir'] || process.env.PUMASI_JOBS_DIR ||
+      (host === 'claude-code' ? path.join(SKILL_DIR, '.jobs') : path.join(workingDir, '.pumasi', 'jobs'));
     const lastJobFile = path.join(jobsDir, '.last-job');
     if (fs.existsSync(lastJobFile)) {
       const saved = fs.readFileSync(lastJobFile, 'utf8').trim();

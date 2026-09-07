@@ -10,6 +10,12 @@
 
 作るのは Codex に任せて、考えるのは Claude に。
 
+**OMO・Codex など別のホストでも利用できます。** 呼び出したセッションが管理を続け、
+`start --host omo` は Claude Code を既定のワーカーにします。明示したタスク命令が
+優先されます。Claude 専用フックを導入しない Node 実行は
+[ホスト・ワーカーガイド](docs/host-workers.md)を参照してください。
+以下は従来の Claude Code ホストの例です。
+
 [クイックスタート](#クイックスタート) • [なぜ pumasi なのか](#なぜ-pumasi-なのか) • [仕組み](#仕組み) • [機能](#機能) • [動作要件](#動作要件)
 
 ---
@@ -183,7 +189,8 @@ pumasi.sh clean [JOB_DIR]
 - [Codex CLI](https://github.com/openai/codex) — `npm install -g @openai/codex`
 - (任意) [Grok CLI](https://docs.x.ai/build/overview) — `curl -fsSL https://x.ai/cli/install.sh | bash`
 - Node.js 18+
-- OpenAI API キー（Codex 用）
+- 選択したワーカー CLI のログインまたは API キー認証。ホストの認証とは別です。
+  Claude ワーカーやサブスクリプション認証の Codex に OpenAI API キーは必須ではありません。
 
 ---
 

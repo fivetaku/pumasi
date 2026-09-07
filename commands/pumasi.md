@@ -21,6 +21,10 @@ If the output is empty, just continue silently. (AskUserQuestion must NOT be in 
 
 # /pumasi Command
 
+이 파일은 Claude Code 플러그인 진입점이다. OMO·Codex 등 다른 호스트에서는
+`skills/pumasi/SKILL.md`의 호스트 계약과 `docs/host-workers.md`의 직접 Node 호출을
+사용한다. 그 환경에서 이 파일의 Claude 전용 setup이나 AskUserQuestion을 강제하지 않는다.
+
 Claude가 PM/감독 역할을 맡고, Codex CLI 인스턴스를 병렬 외주 개발자로 활용하여 대규모 코딩 작업을 수행한다.
 
 ## Parse Arguments
