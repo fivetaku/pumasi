@@ -6,6 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
+const { finished } = require('node:stream/promises');
 
 const OUTPUT_SCHEMA_PATH = path.join(__dirname, 'codex-output-schema.json');
 
@@ -55,21 +56,24 @@ function splitCommand(command) {
   let inSingle = false;
   let inDouble = false;
   let escapeNext = false;
+  let tokenStarted = false;
 
   for (const ch of String(command || '')) {
     if (escapeNext) { current += ch; escapeNext = false; continue; }
-    if (!inSingle && ch === '\\') { escapeNext = true; continue; }
-    if (!inDouble && ch === "'") { inSingle = !inSingle; continue; }
-    if (!inSingle && ch === '"') { inDouble = !inDouble; continue; }
+    if (!inSingle && ch === '\\') { escapeNext = true; tokenStarted = true; continue; }
+    if (!inDouble && ch === "'") { inSingle = !inSingle; tokenStarted = true; continue; }
+    if (!inSingle && ch === '"') { inDouble = !inDouble; tokenStarted = true; continue; }
     if (!inSingle && !inDouble && /\s/.test(ch)) {
-      if (current) tokens.push(current);
+      if (tokenStarted) tokens.push(current);
       current = '';
+      tokenStarted = false;
       continue;
     }
     current += ch;
+    tokenStarted = true;
   }
 
-  if (current) tokens.push(current);
+  if (tokenStarted) tokens.push(current);
   if (inSingle || inDouble) return null;
   return tokens;
 }
@@ -210,7 +214,7 @@ function main() {
       }
   }
 
-  const prompt = taskInstruction + basePrompt;
+  let prompt = taskInstruction + basePrompt;
 
   // DOE E06e: Codex hangs indefinitely on empty prompt
   if (!prompt || !prompt.trim()) {
@@ -233,7 +237,7 @@ function main() {
   }
 
   const program = tokens[0];
-  const args = tokens.slice(1);
+  let args = tokens.slice(1);
 
   // DOE E08: Add --output-schema for structured JSON output
   // ⚠️ --output-schema/-o 는 codex 전용 플래그다. 다른 CLI(예: Antigravity `agy`)는
@@ -241,13 +245,31 @@ function main() {
   // 형태로 쓰며, 프롬프트가 마지막 위치 인자(-p의 값)로 정상 전달된다.)
   const reportPath = path.join(memberDir, 'report.json');
   const isCodex = /(^|\/)codex$/.test(program);
+  const isClaude = /(^|[/\\])claude(?:\.exe)?$/i.test(program);
   const schemaArgs = [];
+  let reportSchema;
+  if (isClaude) {
+    // The runner owns its transport and result schema. Preserve model/tool policy.
+    const managed = new Set(['--output-format', '--json-schema']);
+    args = args.filter((arg, index, values) =>
+      !managed.has(arg.split('=')[0]) && !(index > 0 && managed.has(values[index - 1])));
+    reportSchema = JSON.parse(fs.readFileSync(OUTPUT_SCHEMA_PATH, 'utf8'));
+    schemaArgs.push('--print', '--output-format', 'json',
+      '--json-schema', JSON.stringify(reportSchema), '--no-session-persistence');
+    prompt = 'You are an implementation worker. The calling host owns planning, approval, '
+      + 'integration and final acceptance. Execute only the assigned task; do not start '
+      + 'pumasi, another planner, or delegate to other agents. Report actual results '
+      + 'using the supplied schema; report partial/failed work honestly.\n\n' + prompt;
+    if (fs.existsSync(reportPath)) fs.unlinkSync(reportPath);
+  }
   if (isCodex && fs.existsSync(OUTPUT_SCHEMA_PATH)) {
     schemaArgs.push('--output-schema', OUTPUT_SCHEMA_PATH);
     schemaArgs.push('-o', reportPath);
   }
 
   const startedAt = new Date().toISOString();
+  const cancelPath = path.join(memberDir, 'cancel-request.json');
+  if (fs.existsSync(cancelPath)) fs.unlinkSync(cancelPath);
   atomicWriteJson(statusPath, {
     member, state: 'running',
     startedAt,
@@ -259,9 +281,11 @@ function main() {
 
   let child;
   try {
-    child = spawn(program, [...args, ...schemaArgs, prompt], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: process.env,
+    const childEnv = { ...process.env };
+    if (isClaude) delete childEnv.CLAUDECODE;
+    child = spawn(program, [...args, ...schemaArgs, ...(isClaude ? [] : [prompt])], {
+      stdio: [isClaude ? 'pipe' : 'ignore', 'pipe', 'pipe'],
+      env: childEnv,
       cwd: cwd,
     });
   } catch (error) {
@@ -281,6 +305,12 @@ function main() {
 
   if (child.stdout) child.stdout.pipe(outStream);
   if (child.stderr) child.stderr.pipe(errStream);
+  if (isClaude && child.stdin) {
+    child.stdin.on('error', (error) => {
+      if (error.code !== 'EPIPE') errStream.write(`stdin: ${error.message}\n`);
+    });
+    child.stdin.end(prompt);
+  }
 
   let timeoutHandle = null;
   let timeoutTriggered = false;
@@ -292,40 +322,69 @@ function main() {
     timeoutHandle.unref();
   }
 
-  const finalize = (payload) => {
-    try { outStream.end(); errStream.end(); } catch { /* ignore */ }
-    atomicWriteJson(statusPath, payload);
-  };
-
+  let spawnError = null;
   child.on('error', (error) => {
-    const isMissing = error && error.code === 'ENOENT';
-    finalize({
-      member,
-      state: isMissing ? 'missing_cli' : 'error',
-      message: error && error.message ? error.message : 'Process error',
-      startedAt,
-      finishedAt: new Date().toISOString(),
-      command, exitCode: null, pid: child.pid,
-    });
-    process.exit(1);
+    spawnError = error;
   });
 
-  child.on('exit', (code, signal) => {
+  child.on('close', async (code, signal) => {
     if (timeoutHandle) clearTimeout(timeoutHandle);
-    const timedOut = Boolean(timeoutTriggered) && (signal === 'SIGTERM' || signal === 'SIGKILL');
-    const canceled = !timedOut && (signal === 'SIGTERM' || signal === 'SIGKILL');
-    finalize({
+    const timedOut = Boolean(timeoutTriggered);
+    let canceled = !timedOut && (signal === 'SIGTERM' || signal === 'SIGKILL'
+      || fs.existsSync(cancelPath));
+    let state = timedOut ? 'timed_out' : canceled ? 'canceled'
+      : spawnError?.code === 'ENOENT' ? 'missing_cli' : code === 0 ? 'done' : 'error';
+    let message = timedOut ? `Timed out after ${timeoutSec}s`
+      : canceled ? 'Canceled' : spawnError?.message || null;
+    let permissionDenials;
+    try {
+      if (!outStream.writableEnded) outStream.end();
+      if (!errStream.writableEnded) errStream.end();
+      await Promise.all([finished(outStream), finished(errStream)]);
+      if (!timedOut && fs.existsSync(cancelPath)) {
+        canceled = true;
+        state = 'canceled';
+        message = 'Canceled';
+      }
+      if (isClaude && state === 'done') {
+        const envelope = JSON.parse(fs.readFileSync(outPath, 'utf8'));
+        if (envelope.type !== 'result' || envelope.is_error || envelope.subtype !== 'success') {
+          throw new Error(`Claude result failed: ${envelope.subtype || 'invalid envelope'}`
+            + (Array.isArray(envelope.errors) ? `: ${envelope.errors.join('; ')}` : ''));
+        }
+        const report = envelope.structured_output;
+        const valid = report && typeof report === 'object' && !Array.isArray(report)
+          && reportSchema.required.every(key => Object.hasOwn(report, key))
+          && Object.entries(report).every(([key, value]) => {
+            const field = reportSchema.properties[key];
+            if (!field) return false;
+            if (field.type === 'array') return Array.isArray(value) && value.every(item => typeof item === 'string');
+            return typeof value === 'string' && (!field.enum || field.enum.includes(value));
+          });
+        if (!valid) throw new Error('Claude structured_output is missing or does not match the report schema');
+        atomicWriteJson(reportPath, report);
+        permissionDenials = envelope.permission_denials;
+        if (report.status !== 'success') {
+          state = 'error';
+          message = `Claude report: ${report.status}`;
+        }
+      }
+    } catch (error) {
+      if (!timedOut && !canceled && state !== 'missing_cli') state = 'error';
+      message = message || `Worker output error: ${error.message}`;
+    }
+    atomicWriteJson(statusPath, {
       member,
-      state: timedOut ? 'timed_out' : canceled ? 'canceled' : code === 0 ? 'done' : 'error',
-      message: timedOut ? `Timed out after ${timeoutSec}s` : canceled ? 'Canceled' : null,
+      state, message,
       startedAt,
       finishedAt: new Date().toISOString(),
       command,
       exitCode: typeof code === 'number' ? code : null,
       signal: signal || null,
       pid: child.pid,
+      ...(permissionDenials ? { permissionDenials } : {}),
     });
-    process.exit(code === 0 ? 0 : 1);
+    process.exitCode = state === 'done' ? 0 : 1;
   });
 }
 

@@ -1,12 +1,27 @@
 ---
 name: pumasi
-description: Parallel coding orchestration — Claude takes the PM/architect role, Codex CLI instances act as parallel outsource developers. Auto-triggers when 3+ independent modules need concurrent implementation. Distributes subtasks to Codex, then Claude reviews and integrates. Korean triggers: "/pumasi", "품앗이로 만들어줘", "품앗이 켜줘", "codex 외주로", "codex한테 시켜". English triggers: "pumasi", "parallel with codex", "delegate to codex", "codex outsource". DO NOT trigger on image-generation requests like "이미지 만들어줘", "썸네일 만들어", "로고 만들어줘", "make image", "create thumbnail" — including when they name Codex ("코덱스로 이미지 만들어줘", "codex로 그림 뽑아줘"). Those belong to the image skill (/pumasi:image), which also drives Codex.
+description: Host-controlled parallel coding. Claude Code hosts default to Codex workers; OMO, Codex and other hosts can use Claude Code workers. The host plans, verifies and integrates. Triggers include pumasi, 품앗이, parallel with codex, delegate to codex, Claude worker and 클로드 워커. Image generation belongs to the separate image skill.
 ---
 
-<!-- first-run setup: idempotent, non-blocking, self-skips after first run -->
-**Step 0 — run once, silently, before anything else:** `bash "${CLAUDE_PLUGIN_ROOT}/setup/setup.sh" >/dev/null 2>&1 || true` — do not narrate or comment on it, then continue.
+<!-- Claude-specific first-run setup; never run it from another host -->
+**Step 0:** 현재 호스트가 Claude Code일 때만 `bash "${CLAUDE_PLUGIN_ROOT}/setup/setup.sh" >/dev/null 2>&1 || true`를 실행한다. OMO·Codex·기타 호스트는 Claude 설정·훅을 설치하지 않고 아래 호스트 계약부터 따른다.
 
 # 품앗이 (Pumasi) — Codex 병렬 외주 개발
+
+## 호스트와 워커 계약
+
+품앗이를 부른 현재 세션이 항상 **호스트(기획·감독·승인·최종 검증 담당)**다. Claude Code에서 부르면 기본 워커는 Codex이고, OMO·Codex·기타 환경에서 부르면 기본 워커는 Claude Code다. Claude 워커에게 전체 오케스트레이션을 다시 맡기거나 품앗이를 재귀 실행하지 않는다.
+
+- 시작 시 `--host claude-code|omo|codex|other`를 지정한다. 우선순위는 CLI > `PUMASI_HOST` 환경변수 > 설정의 `pumasi.host` > `claude-code`(기존 동작)다.
+- 워커 명령 우선순위는 task `command` > 명시한 `defaults.command` > 호스트별 기본값이다. 호스트에 따라 전환하려면 기존 설정의 명시적 Codex `defaults.command`를 생략한다. 명시한 혼합 워커를 자동으로 덮어쓰지 않는다.
+- Claude 기본 명령은 `claude --print --permission-mode acceptEdits`다. JSON 출력·스키마·stdin 전달은 워커가 관리한다. 모델·허용 도구·권한은 명시적 task/default 명령 옵션으로 조정하며 호스트 인증을 복사하지 않는다.
+- 비-Claude 호스트는 이 파일 위치에서 플러그인 루트를 구해 기존 `${CLAUDE_PLUGIN_ROOT}` 자리의 경로로 사용한다. Bash 래퍼가 없어도 `node <plugin>/skills/pumasi/scripts/pumasi-job.js`로 실행할 수 있다.
+- AskUserQuestion이 없는 호스트에서는 그 호스트의 질문 도구를 쓰고, 없으면 일반 대화로 선택을 받는다. 이미 명시된 호스트·워커는 다시 묻지 않는다.
+- 아래 기존 예시의 **Claude(기획자)**는 호스트, **Codex(구현자)**는 선택된 워커 역할로 읽는다. CLI별 실제 플래그와 인증은 치환하지 않는다. Codex 전용 참고는 Codex 워커에만 적용한다.
+- 비-Claude 작업은 기본적으로 호출 프로젝트의 `.pumasi/jobs/`에 저장한다. `start`가 반환한 JOB_DIR를 이후 `wait`, `gates`, `results`, `redelegate`, `stop`에 명시한다. `wait`는 진행 스냅샷도 반환하므로 한 번 돌아왔다고 완료로 보지 않는다. `overallState=done`도 전체 성공을 뜻하지 않으므로 각 워커 상태·보고서·게이트를 확인한다.
+- Claude의 실패/부분 완료/잘못된 JSON/누락된 구조화 보고는 완료로 승격하지 않는다. 원본 stdout·stderr와 `report.json`을 보존한 뒤 호스트가 재위임 여부를 판단한다.
+
+상세 실행 예시와 권한 경계: [다른 호스트에서 사용하기](../../docs/host-workers.md).
 
 > 품앗이: 서로 협력하며 일을 나눠 하는 한국 전통 방식
 > Claude = 설계/감독 | Codex × N = 병렬 구현자
@@ -132,7 +147,7 @@ Claude가 직접 코딩  Claude가 시그니처+요구사항 작성
 
 ### Phase 0.5: 워커 선택 (AskUserQuestion 필수 — 스킵 조건 있음)
 
-기획 승인을 받는 **같은 AskUserQuestion 콜의 `questions` 배열**에 워커 선택 문항을 포함한다 (블로킹 질문을 늘리지 않기 위해 별도 콜 금지). 텍스트로 묻지 말 것.
+기획 승인을 받는 같은 질문에 워커 선택을 포함한다. Claude Code에서는 AskUserQuestion을 쓰고, 다른 호스트에서는 위 호스트 계약의 질문 수단을 쓴다.
 
 **스킵 조건**: 사용자가 요청에서 워커를 이미 지명한 경우("grok으로", "codex한테", "agy 외주") — 지명된 워커를 그대로 쓰고 묻지 않는다.
 
@@ -140,14 +155,14 @@ Claude가 직접 코딩  Claude가 시그니처+요구사항 작성
 - header: "외주 워커"
 - question: "어떤 CLI 워커에게 외주를 맡길까요?"
 - options (4개):
-  1. **Codex (권장)** — 기본 워커. `--output-schema` 구조화 보고(report.json) 지원, 기본 샌드박스
+  1. **호스트 기본 워커 (권장)** — Claude Code 호스트면 Codex, OMO 등 다른 호스트면 Claude Code. 둘 다 구조화 보고(report.json) 지원
   2. **Grok** — xAI Grok Build (grok-4.6). SuperGrok 구독이면 한계비용 0. report.json 없이 output.txt 통합
   3. **혼합** — 태스크 성격별로 codex/grok/cursor/agy/gjc 나눠 배정 (배정안은 Claude가 제안 후 config에 task별 `command:`로 반영)
   4. **Cursor / agy / gjc** — Cursor Ultra 구독이면 cursor-agent(Composer·Codex·**Claude Opus/Fable까지** 선택 가능), 디자인·UI는 Antigravity(agy), 멀티모델은 gajae-code(gjc)
 
 선택 결과는 Phase 2에서 `.pumasi/pumasi.config.yaml`의 `defaults.command:`(혼합이면 task별 `command:`)에 반영한다. 각 워커의 정확한 command 문자열은 아래 **"외주 워커 교체"** 절의 것을 그대로 쓴다.
 
-**선택 직후 설치 확인 1회**: `command -v <cli>` (grok은 실패 시 `$HOME/.grok/bin/grok` 폴백 — 셸 프로필 PATH라 비대화형에서 안 잡힐 수 있음). 미설치면 사용자에게 알리고 codex로 폴백한다.
+**선택 직후 설치 확인 1회**: `command -v <cli>` (grok은 실패 시 `$HOME/.grok/bin/grok` 폴백). 미설치·미인증이면 그대로 알리고 중단하거나 사용자에게 다른 워커를 선택받는다. 명시한 Claude 워커를 Codex로 몰래 바꾸지 않는다.
 
 ### Phase 1: 분석 (Claude)
 
@@ -168,7 +183,7 @@ Claude가 직접 코딩  Claude가 시그니처+요구사항 작성
 > 예시 파일일 뿐이며 업데이트 시 덮어써지므로 **절대 직접 수정하지 않는다**.
 
 > **instruction 작성 전 반드시 Read**:
-> - `${CLAUDE_PLUGIN_ROOT}/skills/pumasi/references/codex-guide.md` — Codex 특성, DO/DON'T 규칙, 라이브러리 대체 방지
+> - Codex 워커일 때만 `${CLAUDE_PLUGIN_ROOT}/skills/pumasi/references/codex-guide.md` — Codex 특성, DO/DON'T 규칙, 라이브러리 대체 방지
 > - `${CLAUDE_PLUGIN_ROOT}/skills/pumasi/references/instruction-templates.md` — 템플릿, 좋은/나쁜 예시, 자기 점검 체크리스트
 > - `${CLAUDE_PLUGIN_ROOT}/skills/pumasi/references/tech-stack.md` — 2025-2026 기준 모던 스택 추천표
 
@@ -195,6 +210,8 @@ ${CLAUDE_PLUGIN_ROOT}/skills/pumasi/scripts/pumasi.sh wait [JOB_DIR]
 ${CLAUDE_PLUGIN_ROOT}/skills/pumasi/scripts/pumasi.sh results [JOB_DIR]
 ```
 
+구조화 리포트와 상태를 먼저 확인할 때는 `results --compact [JOB_DIR]`를 쓸 수 있다. 원문 프롬프트·stdout·stderr를 중복 출력하지 않고 리포트·게이트 결과와 원본 파일 경로를 반환한다. 실패·부분 완료·리포트 누락을 조사할 때는 해당 원본 파일도 읽는다. 기본 출력과 `--json`의 기존 동작은 유지된다.
+
 **4단계 검증 프로세스:**
 
 ```
@@ -212,6 +229,8 @@ Step 2: 결과 판정
 Step 3: 서브태스크 간 인터페이스 확인
   └── 타입/import 경로 등 교차 검증
 ```
+
+동일 소스 스냅샷에 대한 **결정론적·읽기 전용 공통 검사**만 gate 항목에 `shared_readonly: true`를 명시할 수 있다. 모든 워커가 완료된 한 번의 `gates` 호출 안에서 같은 작업 디렉터리·명령의 통과 결과만 공유한다. 일반 검사, 실패·타임아웃, 작업 디렉터리가 다른 검사에는 적용하지 않는다. 일반 검사가 사이에 실행되면 공유 결과를 폐기하고, 다음 `gates` 호출에서는 항상 다시 검사한다. 포맷터·스냅샷 갱신·외부 서비스·시각이나 실행 순서에 의존하는 검사에는 표시하지 않는다. 검사 중 다른 프로세스가 소스를 수정할 수 있는 상황에서도 사용하지 않는다.
 
 ### Phase 5.5: 코드 정리 (선택적, /simplify 활용)
 
@@ -260,6 +279,7 @@ pumasi.sh wait [JOB_DIR]
 # 결과
 pumasi.sh results [JOB_DIR]
 pumasi.sh results --json [JOB_DIR]
+pumasi.sh results --compact [JOB_DIR]
 
 # 관리
 pumasi.sh stop [JOB_DIR]
@@ -305,15 +325,15 @@ Round 2: Round 1 결과 사용하는 태스크 (2개 병렬)
 Round 3: 최종 통합 (Claude 직접)
 ```
 
-**Codex CLI 필요**:
+**선택된 워커 CLI 필요** (Claude Code 호스트 기본은 Codex, 다른 호스트 기본은 Claude):
 ```bash
 command -v codex  # 설치 확인
 # 없으면: npm install -g @openai/codex
 ```
 
 **외주 워커 교체 (선택) — Grok(`grok`) / Cursor(`cursor-agent`) / gajae-code(`gjc`) / Antigravity CLI(`agy`)**:
-기본 워커는 Codex지만, task의 `command:` 또는 `defaults.command:`를 바꾸면 다른 CLI로 외주할 수 있다.
-프롬프트는 항상 명령의 **마지막 positional 인자**로 자동 전달되므로, 그 형태로 끝나는 명령이면 된다.
+호스트별 기본 워커 대신 task의 `command:` 또는 `defaults.command:`로 다른 CLI를 명시할 수 있다.
+Claude Code는 stdin으로 프롬프트를 받고 구조화 JSON을 반환한다. 다른 CLI는 기존처럼 **마지막 positional 인자**로 프롬프트가 전달된다.
 
 **Grok CLI(`grok`)** — xAI Grok Build (코드·대규모 분석):
 ```yaml

@@ -10,6 +10,12 @@
 
 Delega la construcción en Codex. Reserva el pensamiento para Claude.
 
+**También puedes usar OMO, Codex u otro anfitrión.** La sesión actual conserva
+la planificación y la verificación; `start --host omo` elige Claude Code como
+trabajador predeterminado. Los comandos explícitos tienen prioridad. Consulta
+la [guía de anfitriones y trabajadores](docs/host-workers.md) para ejecutar Node
+sin instalar hooks de Claude. Los ejemplos siguientes muestran el modo original.
+
 [Inicio rápido](#inicio-rápido) • [¿Por qué pumasi?](#por-qué-pumasi) • [Cómo funciona](#cómo-funciona) • [Características](#características) • [Requisitos](#requisitos)
 
 ---
@@ -183,7 +189,9 @@ pumasi.sh clean [JOB_DIR]
 - [Codex CLI](https://github.com/openai/codex) — `npm install -g @openai/codex`
 - (opcional) [Grok CLI](https://docs.x.ai/build/overview) — `curl -fsSL https://x.ai/cli/install.sh | bash`
 - Node.js 18+
-- Clave de API de OpenAI (para Codex)
+- Autenticación propia del CLI trabajador mediante su inicio de sesión o clave
+  de API compatible. La sesión del anfitrión no sustituye esa autenticación;
+  una clave de OpenAI no es obligatoria para Claude ni para Codex con suscripción.
 
 ---
 

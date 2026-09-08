@@ -10,6 +10,12 @@
 
 짓는 건 Codex에게. 생각하는 건 Claude가.
 
+**OMO·Codex 등 다른 환경에서도 사용할 수 있습니다.** 현재 세션이 계속 기획·감독하고,
+`start --host omo`로 시작하면 기본 구현 워커가 Claude Code가 됩니다. 태스크나 기본
+설정에 명령을 명시했다면 그 선택이 우선합니다. Claude 전용 훅 설치 없이 Node로
+실행하는 방법은 [호스트·워커 안내](docs/host-workers.md)를 참고하세요.
+아래 예시는 기존 Claude Code 호스트 모드를 설명합니다.
+
 [빠른 시작](#빠른-시작) • [왜 품앗이인가?](#왜-품앗이인가) • [어떻게 작동하나요?](#어떻게-작동하나요) • [기능](#기능) • [요구사항](#요구사항)
 
 ---
@@ -185,9 +191,10 @@ pumasi.sh clean [JOB_DIR]
 
 - [Claude Code](https://docs.anthropic.com/claude-code) CLI
 - [Codex CLI](https://github.com/openai/codex) — `npm install -g @openai/codex` (기본 워커)
-- 선택 — 태스크별로 바꿔 쓸 수 있는 대체 워커: [Grok CLI](https://docs.x.ai/build/overview) (`curl -fsSL https://x.ai/cli/install.sh | bash`), Cursor CLI `cursor-agent`(Cursor Ultra 구독 시 Composer·Codex·Claude Opus/Fable 선택), Antigravity CLI `agy`(디자인·UI), gajae-code `gjc`(멀티모델). 미설치면 Codex로 폴백.
+- 선택 — 태스크별로 바꿔 쓸 수 있는 대체 워커: [Grok CLI](https://docs.x.ai/build/overview) (`curl -fsSL https://x.ai/cli/install.sh | bash`), Cursor CLI `cursor-agent`(Cursor Ultra 구독 시 Composer·Codex·Claude Opus/Fable 선택), Antigravity CLI `agy`(디자인·UI), gajae-code `gjc`(멀티모델). 선택한 CLI가 없으면 다른 워커를 명시적으로 선택합니다. 자동으로 Codex로 바꾸지 않습니다.
 - Node.js 18+
-- OpenAI API 키 (Codex 실행용)
+- 선택한 워커 CLI에 해당 워커의 로그인 또는 API 키 인증이 필요합니다. 호스트 로그인과
+  워커 로그인은 별개이며, Claude 워커나 구독 인증 Codex 워커에 OpenAI API 키가 필수인 것은 아닙니다.
 
 ---
 

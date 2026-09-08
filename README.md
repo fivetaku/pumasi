@@ -10,6 +10,12 @@ English | [한국어](README.ko.md) | [中文](README.zh.md) | [日本語](READM
 
 Delegate the building to Codex. Keep the thinking for Claude.
 
+**Using OMO, Codex, or another host?** The current session remains the controller;
+`start --host omo` selects Claude Code as the default worker. Explicit task or
+default commands still win. Use the direct Node runner without installing
+Claude-specific hooks: [host/worker guide](docs/host-workers.md). The examples
+below describe the original Claude Code host mode.
+
 [Quick Start](#quick-start) • [Why pumasi?](#why-pumasi) • [How it works](#how-it-works) • [Features](#features) • [Requirements](#requirements)
 
 ---
@@ -185,9 +191,11 @@ pumasi.sh clean [JOB_DIR]
 
 - [Claude Code](https://docs.anthropic.com/claude-code) CLI
 - [Codex CLI](https://github.com/openai/codex) — `npm install -g @openai/codex` (default worker)
-- Optional alternative/mixable workers — pick per task at run time: [Grok CLI](https://docs.x.ai/build/overview) (`curl -fsSL https://x.ai/cli/install.sh | bash`), Cursor CLI `cursor-agent` (Composer / Codex / Claude Opus·Fable routing on Cursor Ultra), Antigravity CLI `agy` (design·UI), gajae-code `gjc` (multi-model). Missing ones fall back to Codex.
+- Optional alternative/mixable workers — pick per task at run time: [Grok CLI](https://docs.x.ai/build/overview) (`curl -fsSL https://x.ai/cli/install.sh | bash`), Cursor CLI `cursor-agent` (Composer / Codex / Claude Opus·Fable routing on Cursor Ultra), Antigravity CLI `agy` (design·UI), gajae-code `gjc` (multi-model). If the selected CLI is unavailable, choose another explicitly; Pumasi does not silently replace it.
 - Node.js 18+
-- OpenAI API key (for Codex)
+- Authenticate the selected worker with its supported local login or API-key
+  mechanism. A host login is not a worker login; an OpenAI API key is not mandatory
+  for a Claude worker or a subscription-authenticated Codex worker.
 
 ---
 

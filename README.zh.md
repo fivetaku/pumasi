@@ -10,6 +10,11 @@
 
 把动手交给 Codex，把思考留给 Claude。
 
+**也可从 OMO、Codex 等其他宿主调用。** 当前会话仍负责规划和验收，
+`start --host omo` 默认使用 Claude Code 工作进程；显式配置的命令仍优先。
+无需安装 Claude 专用钩子的 Node 调用方式见[宿主与工作进程指南](docs/host-workers.md)。
+以下示例描述原有的 Claude Code 宿主模式。
+
 [快速开始](#快速开始) • [为什么选 pumasi](#为什么选-pumasi) • [工作原理](#工作原理) • [功能](#功能) • [环境要求](#环境要求)
 
 ---
@@ -183,7 +188,8 @@ pumasi.sh clean [JOB_DIR]
 - [Codex CLI](https://github.com/openai/codex) — `npm install -g @openai/codex`
 - (可选) [Grok CLI](https://docs.x.ai/build/overview) — `curl -fsSL https://x.ai/cli/install.sh | bash`
 - Node.js 18+
-- OpenAI API 密钥（供 Codex 使用）
+- 为所选工作进程 CLI 配置其支持的登录或 API 密钥认证。宿主认证与工作进程认证独立；
+  Claude 工作进程和订阅登录的 Codex 不强制要求 OpenAI API 密钥。
 
 ---
 

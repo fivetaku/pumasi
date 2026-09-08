@@ -1,6 +1,9 @@
 pumasi:
+  # host: omo  # claude-code(default) -> Codex; omo/codex/other -> Claude Code
   # ── 외주 워커 CLI 선택 (defaults.command 또는 task별 command 로 지정) ──
   # codex (기본) : "codex exec --dangerously-bypass-approvals-and-sandbox"
+  # claude       : "claude --print --permission-mode acceptEdits"
+  #                # stdin + JSON schema 결과 정규화는 품앗이 워커가 처리한다.
   # grok         : "grok --no-auto-update --no-alt-screen --sandbox workspace --always-approve -p"
   #                # xAI Grok Build. 샌드박스가 기본 off라 workspace로 조이고, 자동 업데이터를 끈다.
   # gajae-code   : "gjc --print"                            # 멀티모델 코딩 CLI. 프롬프트가 --print 뒤 positional(MESSAGE)로 전달됨
@@ -12,10 +15,11 @@ pumasi:
   #                # 예: "cursor-agent -p --force --model composer-2.5 --output-format text"
   # cursor-opus  : "cursor-agent -p --force --model claude-opus-5-thinking-high --output-format text"
   #                # Claude Max 쿼터 소진 시 Opus 대체 경로
-  # ※ codex 외 CLI는 --output-schema 미지원 → report.json 없이 output.txt 기반 통합 (graceful)
+  # ※ Codex와 Claude는 report.json 지원. 다른 CLI는 output.txt 기반 통합.
   # ※ task별로 다른 command 지정 가능 → 모듈마다 다른 CLI에 병렬 외주
   defaults:
-    command: "codex exec --dangerously-bypass-approvals-and-sandbox"
+    # command: "codex exec --dangerously-bypass-approvals-and-sandbox"
+    # 명시한 command는 host 기본값보다 우선한다. 호스트 기본 워커를 쓰려면 생략.
     emoji: "🤖"
 
   # 예시: 인증 시스템 (시그니처 + 요구사항 패턴)
