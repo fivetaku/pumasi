@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.17.0 (2026-09-08)
+
+- **호스트 제어 Claude 워커·compact 결과.** 현재 세션이 지휘자로 남으며 `--host omo|codex|other`는 Claude Code를 기본 워커로 선택한다. 기존 Claude Code 호스트의 Codex 기본값과 task/default의 명시적 command 우선순위는 유지한다. 선택한 호스트·워커는 후속 라운드와 재시도에도 보존한다.
+- Claude 워커에 프롬프트를 stdin으로 전달하고 JSON `structured_output`을 기존 `report.json` 계약으로 정규화한다. 오류·누락·잘못된 보고서·비정상 종료·시간 초과·취소를 성공으로 처리하지 않으며, 출력 회수와 보고서 정규화가 끝난 뒤 종료 상태를 게시한다.
+- `results --compact`는 원문 컨텍스트를 반복하지 않고 구조화 보고서·실패 정보·원본 아티팩트 경로를 반환한다. 명시적으로 공유를 허용한 읽기 전용 게이트는 같은 실행 안에서 성공 결과를 재사용하며 task별 귀속을 유지한다.
+- 검증: 호스트 선택·Claude 워커·compact 결과·공유 게이트 Node 테스트 33건과 기존 워커 명령 회귀 검사 통과. README 5개 언어와 `docs/host-workers.md`의 사용 안내는 기능 병합에 포함되어 있다.
+
 ## 1.16.1 (2026-09-04)
 
 - README(en/ko)에 `/pumasi:image` 이미지 생성 스킬 섹션 추가 — plugin.json이 광고하는 기능 절반이 README에 없었음(Codex gpt-image-2 / Grok image_gen 백엔드, 비율·텍스트 렌더 특성)
