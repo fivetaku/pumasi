@@ -38,6 +38,8 @@ case "$1" in
     case "${2:-}" in list) echo "image_generation true" ;; enable) : ;; esac
     exit 0 ;;
   exec)
+    # 위임 작성 계약 검증용 — codex에 전달된 작업 프롬프트(마지막 인자)를 기록
+    [ -n "${FAKE_CODEX_PROMPT_LOG:-}" ] && printf '%s' "${@: -1}" > "$FAKE_CODEX_PROMPT_LOG"
     # 프록시 상속 여부를 기록 — 래퍼가 codex 호출에서만 프록시를 벗기는지 검증용
     [ -n "${FAKE_CODEX_PROXY_LOG:-}" ] && \
       printf 'HTTPS_PROXY=[%s]\n' "${HTTPS_PROXY:-}" > "$FAKE_CODEX_PROXY_LOG"
@@ -209,10 +211,18 @@ rm -rf "$SANDBOX"
 make_grok_mock() {
   cat > "${BIN}/grok" <<'FAKE'
 #!/usr/bin/env bash
+# --no-auto-update 를 거부하는 빌드 재현 (FAKE_GROK_REJECT_UPDATE=1)
+for a in "$@"; do
+  if [ "$a" = "--no-auto-update" ] && [ "${FAKE_GROK_REJECT_UPDATE:-0}" = "1" ]; then
+    echo "error: unexpected argument '--no-auto-update' found" >&2; exit 2
+  fi
+done
 if [ "${1:-}" = "models" ]; then
   echo "You are logged in"
   exit 0
 fi
+case " $* " in *" --version "*) echo "grok 0.0.0-fake (mock) [stable]"; exit 0 ;; esac
+[ -n "${FAKE_GROK_ARGS_LOG:-}" ] && printf '%s\n' "$*" > "$FAKE_GROK_ARGS_LOG"
 CWD=""; PROMPT=""
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -281,6 +291,57 @@ rc=$?
 grep -q "grok image_edit" "${SANDBOX}/out.log" && ok "source reports grok image_edit" || bad "wrong source"
 grep -q "image_edit exactly once" "$FAKE_GROK_PROMPT_LOG" && ok "prompt requested image_edit" || bad "image_edit instruction missing"
 [ ! -e "$FAKE_CODEX_CALLED" ] && ok "codex was not called" || bad "codex was called"
+python3 -c 'import shutil,sys;shutil.rmtree(sys.argv[1])' "$SANDBOX"
+
+echo "== Test 13: grok flag compat — --no-auto-update passed when accepted, dropped when rejected =="
+for REJECT in 0 1; do
+  make_sandbox
+  make_grok_mock
+  ARGS_LOG="${SANDBOX}/grok-args.txt"
+  HOME="${SANDBOX}/home" PATH="${BIN}:$PATH" GROK_BIN="${BIN}/grok" \
+    FAKE_GROK_REJECT_UPDATE="$REJECT" FAKE_GROK_ARGS_LOG="$ARGS_LOG" \
+    bash "$IMAGEN" "$PROMPT_FILE" "$TARGET" "16:9" --backend grok > "${SANDBOX}/out.log" 2>&1
+  rc=$?
+  [ "$rc" = "0" ] && ok "reject=$REJECT: grok generation exits 0" || bad "reject=$REJECT: rc=$rc"
+  if [ "$REJECT" = "0" ]; then
+    grep -q -- "--no-auto-update" "$ARGS_LOG" && ok "flag passed to accepting build" || bad "flag missing for accepting build"
+  else
+    ! grep -q -- "--no-auto-update" "$ARGS_LOG" && ok "flag dropped for rejecting build" || bad "flag still passed to rejecting build"
+    grep -q "rejects --no-auto-update" "${SANDBOX}/out.log" && ok "drop is announced (not silent)" || bad "drop not announced"
+  fi
+  python3 -c 'import shutil,sys;shutil.rmtree(sys.argv[1])' "$SANDBOX"
+done
+
+echo "== Test 14: grok with 2 refs warns that only the first is used =="
+make_sandbox
+make_grok_mock
+R1="${SANDBOX}/r1.png"; R2="${SANDBOX}/r2.png"
+printf 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC' | base64 -d > "$R1"; cp "$R1" "$R2"
+HOME="${SANDBOX}/home" PATH="${BIN}:$PATH" GROK_BIN="${BIN}/grok" \
+  bash "$IMAGEN" "$PROMPT_FILE" "$TARGET" "16:9" --backend grok --ref "$R1" --ref "$R2" > "${SANDBOX}/out.log" 2>&1
+rc=$?
+[ "$rc" = "0" ] && ok "multi-ref grok still exits 0" || bad "multi-ref grok rc=$rc"
+grep -q "takes ONE reference" "${SANDBOX}/out.log" && ok "multi-ref drop is warned" || bad "multi-ref drop silent"
+python3 -c 'import shutil,sys;shutil.rmtree(sys.argv[1])' "$SANDBOX"
+
+echo "== Test 16: grok name collision — impostor rejected, official install path preferred =="
+make_sandbox
+make_grok_mock
+# 서드파티 @vibe-kit/grok-cli 흉내: --version 이 "1.0.1"만 출력
+mkdir -p "${SANDBOX}/impostor"
+printf '#!/usr/bin/env bash\n[ "$1" = "--version" ] && { echo 1.0.1; exit 0; }\necho "error: unknown option $1" >&2; exit 1\n' > "${SANDBOX}/impostor/grok"
+chmod +x "${SANDBOX}/impostor/grok"
+HOME="${SANDBOX}/home" PATH="${SANDBOX}/impostor:${BIN}:$PATH" GROK_BIN="${SANDBOX}/impostor/grok" \
+  bash "$IMAGEN" "$PROMPT_FILE" "$TARGET" "16:9" --backend grok > "${SANDBOX}/out.log" 2>&1
+rc=$?
+[ "$rc" = "3" ] && ok "impostor grok fails fast with exit 3" || bad "impostor grok rc=$rc"
+grep -q "not the xAI grok CLI" "${SANDBOX}/out.log" && ok "collision is explained" || bad "collision not explained"
+# GROK_BIN 미지정: PATH 앞에 impostor 가 있어도 ~/.grok/bin/grok 을 쓴다
+mkdir -p "${SANDBOX}/home/.grok/bin"; cp "${BIN}/grok" "${SANDBOX}/home/.grok/bin/grok"
+( unset GROK_BIN; HOME="${SANDBOX}/home" PATH="${SANDBOX}/impostor:${BIN}:$PATH" \
+  bash "$IMAGEN" "$PROMPT_FILE" "$TARGET" "16:9" --backend grok > "${SANDBOX}/out2.log" 2>&1 )
+rc=$?
+[ "$rc" = "0" ] && ok "official ~/.grok/bin/grok preferred over PATH impostor" || bad "resolution picked impostor rc=$rc"
 python3 -c 'import shutil,sys;shutil.rmtree(sys.argv[1])' "$SANDBOX"
 
 echo ""

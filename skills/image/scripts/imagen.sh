@@ -61,16 +61,60 @@ aspect_warn() { # args: W H "ew:eh"
   return 0   # set -e 가드: 비율 일치(경고 없음) 시에도 0 반환
 }
 
+# 실제 생성 모델 판별 — PNG의 C2PA(caBX) 매니페스트 softwareAgent{name,version}을 읽는다.
+# codex JSON/rollout에는 이미지 모델 ID가 안 찍히고 서버가 모델을 핀하므로(2026-09-09 실측 gpt-image 2.0),
+# 이 줄이 "지금 어느 모델인지"를 아는 유일한 감사 경로다. 매니페스트가 없으면 (unverified).
+c2pa_model() { # echo "gpt-image 2.0" 또는 "(unverified)"
+  python3 - "$1" <<'PY' 2>/dev/null || echo "(unverified)"
+import sys
+b=open(sys.argv[1],'rb').read()
+i=b.find(b'softwareAgent')
+if i<0: print('(unverified)'); sys.exit()
+seg=b[i:i+200]
+def tstr(key):  # CBOR text string: key 뒤 헤더 1바이트(0x60+len, len<24)
+    j=seg.find(key)
+    if j<0: return None
+    j+=len(key); h=seg[j]
+    if 0x60<=h<0x78: return seg[j+1:j+1+(h-0x60)].decode('utf-8','replace')
+    return None
+n=tstr(b'dname'); v=tstr(b'gversion')
+print(' '.join(x for x in (n,v) if x) if (n or v) else '(unverified)')
+PY
+  return 0
+}
+
 if [[ ! -f "$PROMPT_FILE" ]]; then
   echo "ERROR: prompt file not found: $PROMPT_FILE" >&2
   exit 2
 fi
 
 if [[ "$BACKEND" == "grok" ]]; then
-  GROK_BIN="${GROK_BIN:-grok}"
+  # 바이너리 해석: GROK_BIN 명시 > 공식 설치 경로(~/.grok/bin/grok) > PATH 의 grok.
+  # ⚠️ 이름 충돌: npm 서드파티 @vibe-kit/grok-cli 도 `grok` 이름을 쓰며 Homebrew PATH 가 앞서면 이쪽이 잡힌다.
+  #    이 경우 "unknown option '--no-auto-update'" 로 실패하는데, 2026-09 "grok CLI 가 플래그를 거부한다"는 진단은
+  #    실제로 이 충돌이었다(2026-09-23 실측: /opt/homebrew/bin/grok = vibe-kit 1.0.1, ~/.grok/bin/grok = xAI 1.0.41).
+  if [[ -z "${GROK_BIN:-}" ]]; then
+    if [[ -x "$HOME/.grok/bin/grok" ]]; then GROK_BIN="$HOME/.grok/bin/grok"; else GROK_BIN="grok"; fi
+  fi
   if ! command -v "$GROK_BIN" >/dev/null 2>&1; then
-    echo "ERROR: grok CLI not installed" >&2
+    echo "ERROR: grok CLI not installed (expected \$HOME/.grok/bin/grok)" >&2
     exit 3
+  fi
+  GROK_VERSION=$("$GROK_BIN" --version 2>/dev/null | head -n1 || true)
+  if [[ ! "$GROK_VERSION" =~ ^grok[[:space:]] ]]; then
+    echo "ERROR: '$(command -v "$GROK_BIN")' is not the xAI grok CLI (version: ${GROK_VERSION:-<none>})." >&2
+    echo "       Name collision — e.g. npm @vibe-kit/grok-cli. Install xAI grok to \$HOME/.grok/bin/grok or set GROK_BIN." >&2
+    exit 3
+  fi
+  # --no-auto-update 는 향후 빌드에서 빠질 수 있으므로 수용 여부를 탐지해 수용할 때만 붙인다.
+  GROK_UPDATE_ARGS=()
+  if "$GROK_BIN" --no-auto-update --version >/dev/null 2>&1; then
+    GROK_UPDATE_ARGS=( --no-auto-update )
+  else
+    echo "[imagen.sh] NOTE: this grok build rejects --no-auto-update — calling without it" >&2
+  fi
+  if [[ ${#REF_ARGS[@]} -gt 1 ]]; then
+    echo "WARN: grok image_edit takes ONE reference — using only the first (${GROK_REF}); ${#REF_ARGS[@]} were given. Use --backend codex for multi-reference prompts." >&2
   fi
   GROK_MODELS=$("$GROK_BIN" models 2>&1 || true)
   if printf '%s\n' "$GROK_MODELS" | grep -qi "not authenticated"; then
@@ -106,7 +150,7 @@ if [[ "$BACKEND" == "grok" ]]; then
   fi
 
   echo "[imagen.sh] calling grok $GROK_MODE — target: $TARGET_PATH"
-  if ! "$GROK_BIN" --no-auto-update --no-alt-screen --sandbox workspace --always-approve \
+  if ! "$GROK_BIN" ${GROK_UPDATE_ARGS[@]+"${GROK_UPDATE_ARGS[@]}"} --no-alt-screen --sandbox workspace --always-approve \
       --cwd "$WORK" -p "$GROK_INSTRUCTION" < /dev/null > "$GROK_STDOUT" 2> "$LOG_FILE"; then
     echo "[imagen.sh] grok exited non-zero; checking for a generated image" >&2
   fi
@@ -148,6 +192,7 @@ if [[ "$BACKEND" == "grok" ]]; then
   SIZE=$(wc -c < "$TARGET_PATH" | tr -d ' ')
   FILE_INFO=$(file "$TARGET_PATH")
   SHA1=$(shasum "$TARGET_PATH" | awk '{print $1}')
+  MODEL=$(c2pa_model "$TARGET_PATH")
   DIMS=$(measure_dims "$TARGET_PATH")
   DIM_STR="${DIMS// /x}"; [[ -z "$DIM_STR" ]] && DIM_STR="(unmeasured)"
 
@@ -159,6 +204,7 @@ if [[ "$BACKEND" == "grok" ]]; then
   dims:    $DIM_STR
   info:    $FILE_INFO
   sha1:    $SHA1
+  model:   $MODEL  (C2PA softwareAgent)
   log:     $LOG_FILE
 EOF
   exit 0
@@ -308,6 +354,7 @@ fi
 SIZE=$(wc -c < "$TARGET_PATH" | tr -d ' ')
 FILE_INFO=$(file "$TARGET_PATH")
 SHA1=$(shasum "$TARGET_PATH" | awk '{print $1}')
+MODEL=$(c2pa_model "$TARGET_PATH")
 DIMS=$(measure_dims "$TARGET_PATH")
 DIM_STR="${DIMS// /x}"; [[ -z "$DIM_STR" ]] && DIM_STR="(unmeasured)"
 if [[ -n "$DIMS" ]]; then
@@ -322,5 +369,6 @@ cat <<EOF
   dims:    $DIM_STR
   info:    $FILE_INFO
   sha1:    $SHA1
+  model:   $MODEL  (C2PA softwareAgent)
   log:     $LOG_FILE
 EOF

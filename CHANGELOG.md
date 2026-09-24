@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.17.1 (2026-09-24)
+
+`/pumasi:image` 버그 수정 릴리즈. 이미지 프롬프트 작성 규약(Image Studio v3.1)은 바꾸지 않는다 — 설계 우선 작성 계약 v4를 블라인드 A/B(32장)로 비교했으나 우위가 없어 기각했다.
+
+- **Grok 백엔드 복구.** `imagen.sh`가 PATH의 `grok`을 그대로 불러, npm 서드파티 `@vibe-kit/grok-cli`가 앞에 있는 환경에서 `unknown option '--no-auto-update'`로 매번 실패했다. 이제 `GROK_BIN` > `~/.grok/bin/grok` > PATH 순으로 찾고, `--version`이 xAI grok이 아니면 이유를 알리고 exit 3으로 멈춘다. `--no-auto-update`는 받는 빌드에만 붙인다. Grok에 `--ref`를 2장 이상 주면 첫 장만 쓰인다고 경고한다.
+- **질문 선택지를 AskUserQuestion 한도에 맞춤.** "질문당 5개 이상"은 도구 스키마(2~4개)를 넘어 호출이 실패했다 → 후보 3개 + "자동 판단". 질문 수 상한도 한 콜 4개로 통일.
+- **"텍스트 공간(비워두기)" 질문 → "텍스트 배치(직접 렌더)".** 기존 선택지가 스킬 자체의 "후합성용 빈 자리 금지" 원칙과 모순이었다.
+- **review 모드가 문구가 들어간 생성물을 각각 검수.** 마지막 1장만 보던 것을, 따옴표 문구를 글자 단위로 대조해 이미지별 통과/실패로 보고하도록 변경.
+- 결과 보고에 C2PA `softwareAgent` 기반 `model:` 줄 추가(매니페스트가 없거나 판독 실패면 `(unverified)` — 추측하지 않음).
+- 검증: `test-imagen-capture.sh` 42/42(신규: grok 플래그 호환·참조 2장 경고·이름 충돌 차단/공식 경로 우선). 실제 grok 1.0.41 생성 성공.
+
 ## 1.17.0 (2026-09-08)
 
 - **호스트 제어 Claude 워커·compact 결과.** 현재 세션이 지휘자로 남으며 `--host omo|codex|other`는 Claude Code를 기본 워커로 선택한다. 기존 Claude Code 호스트의 Codex 기본값과 task/default의 명시적 command 우선순위는 유지한다. 선택한 호스트·워커는 후속 라운드와 재시도에도 보존한다.

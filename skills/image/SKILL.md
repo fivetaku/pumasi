@@ -20,7 +20,7 @@ description: This skill should be used when the user asks to "/pumasi:image", "�
 2. **image-studio 시스템 프롬프트 내면화** — 모드 분류 + Output Template 작성
 3. **후처리 절대 금지** — sips/ImageMagick/재인코딩 금지, 원본 SHA1 유지
 4. **저장 경로 고정** — `images/{YYYY-MM-DD}/{slug}-{seq}.png`
-5. **최대 5개 질문** — 기술 2개 + 의도 3개, 조건부 스킵
+5. **질문은 한 콜 최대 4개** — 기술 + 의도, 입력에서 확정된 차원은 스킵
 6. **텍스트는 /imagen이 직접 렌더링한다** — 썸네일·포스터·로고의 한글/영문 카피는 프롬프트의 Text Integration 섹션에 따옴표로 묶어 그대로 명시. **HTML/CSS 분리·후합성·텍스트 레이어 분할 절대 금지.** 구세대 diffusion 모델(SD/Midjourney) 가정으로 "텍스트 못 그림"이라고 회피하지 말 것 — 백엔드는 다음 §의 capability snapshot 참조.
 
 ---
@@ -98,7 +98,7 @@ codex features enable image_generation
 - 비율 키워드가 입력에 있으면 → 비율 질문 스킵
 - 퀄리티 키워드가 입력에 있으면 → 퀄리티 질문 스킵
 
-### Step 3: AskUserQuestion (최대 5개)
+### Step 3: AskUserQuestion (한 콜 최대 4개)
 
 `${CLAUDE_PLUGIN_ROOT}/skills/image/references/clarification-matrix.md`를 Read하여 모드별 의도 파악 카테고리 3개를 확정한다.
 
@@ -108,11 +108,11 @@ codex features enable image_generation
    - options: ① **Codex gpt-image-2 (권장)** — 임의 비율, 한글/영문 텍스트 렌더 강함 ② **Grok image_gen** — SuperGrok 구독 시 한계비용 0. 단 **비율 9:16/16:9/1:1만** 지원(그 외는 1:1로 강제), 텍스트 렌더는 gpt-image-2 대비 미검증
 1. 비율 (Step 2에서 확정됐으면 스킵. **Grok 선택 시 선택지를 9:16/16:9/1:1로 제한**)
 2. 퀄리티 (Step 2에서 확정됐으면 스킵. Grok에는 퀄리티 파라미터가 없으므로 Grok 선택 시 스킵)
-3~5. 의도 파악 3개 (모드 매트릭스 기반)
+3~5. 의도 파악 (모드 매트릭스 기반, 남은 슬롯만큼)
 
 **질문 원칙 (딸깍 방식)**:
-- 각 질문당 5개 이상 선택지
-- 그중 1~2개는 **예상 못한 창의적 대안**
+- 질문당 선택지 **2~4개** (AskUserQuestion 스키마 한도 — 5개 이상이면 호출이 실패한다). 권장 구성: 후보 3개 + "자동 판단". "Other"(직접 입력)는 도구가 자동 제공하므로 따로 만들지 않는다
+- 후보 중 1개는 **예상 못한 창의적 대안**을 넣을 수 있다
 - "자동 판단" 안전망 선택지 항상 포함
 - 입력에서 이미 확정된 차원은 질문 스킵 → 다음 우선순위로 슬롯 채움
 
@@ -252,8 +252,9 @@ bash ${CLAUDE_PLUGIN_ROOT}/skills/image/scripts/imagen.sh \
    - Read 호출 **안 함**
 
    **review 모드**:
-   - 위 안내 + 마지막 PNG 1장만 Read (텍스트 렌더링 검수)
-   - 안내문에 "[review 모드: 텍스트 검수용 1장 표시]" 추가
+   - 위 안내 + 이번 요청에서 **문구가 들어간 생성물을 각각** Read (보통 1장. 여러 장을 만들었으면 마지막 1장만 보고 전체 통과를 선언하지 않는다)
+   - 따옴표로 지정된 문구를 **글자 단위로** 원문과 대조(누락·오자·추가 글자)하고, 이미지별 통과/실패를 보고한다
+   - 안내문에 "[review 모드: 텍스트 검수]" 추가
 
    **audit 모드**:
    - 위 안내 + 모든 PNG Read
