@@ -149,18 +149,20 @@ Claude가 직접 코딩  Claude가 시그니처+요구사항 작성
 
 기획 승인을 받는 같은 질문에 워커 선택을 포함한다. Claude Code에서는 AskUserQuestion을 쓰고, 다른 호스트에서는 위 호스트 계약의 질문 수단을 쓴다.
 
-**스킵 조건**: 사용자가 요청에서 워커를 이미 지명한 경우("grok으로", "codex한테", "agy 외주") — 지명된 워커를 그대로 쓰고 묻지 않는다.
+**스킵 조건**: 사용자가 요청에서 워커를 이미 지명한 경우("grok으로", "codex한테", "agy 외주", "그록봇한테") — 지명된 워커를 그대로 쓰고 묻지 않는다. 프로젝트 `.pumasi/pumasi.config.yaml`에 `defaults.command`나 task별 `command`가 이미 있으면 그것도 지명으로 본다.
 
 문항 구성:
 - header: "외주 워커"
-- question: "어떤 CLI 워커에게 외주를 맡길까요?"
+- question: "어떤 워커에게 외주를 맡길까요?"
 - options (4개):
-  1. **호스트 기본 워커 (권장)** — Claude Code 호스트면 Codex, OMO 등 다른 호스트면 Claude Code. 둘 다 구조화 보고(report.json) 지원
-  2. **Grok** — xAI Grok Build (grok-4.6). SuperGrok 구독이면 한계비용 0. report.json 없이 output.txt 통합
-  3. **혼합** — 태스크 성격별로 codex/grok/cursor/agy/gjc 나눠 배정 (배정안은 Claude가 제안 후 config에 task별 `command:`로 반영)
-  4. **Cursor / agy / gjc** — Cursor Ultra 구독이면 cursor-agent(Composer·Codex·**Claude Opus/Fable까지** 선택 가능), 디자인·UI는 Antigravity(agy), 멀티모델은 gajae-code(gjc)
+  1. **호스트 기본 워커 (권장)** — Claude Code 호스트면 Codex, OMO 등 다른 호스트면 Claude Code. 로컬 레포 코드 작업, 구조화 보고(report.json) 지원
+  2. **Grok Bot 팀** — Grok Bot 앱의 클라우드 봇 팀(지휘·리서치·브라우저·코딩·검증·정리)에 job으로 맡긴다. 웹 조사·출처 확인·문서·브라우저 작업용이며 로컬 레포를 직접 고치지 않는다. 처음 고르면 Grok Bot 계정에 품앗이 팀 봇 6개·그룹 1개·스킬 1개를 만든다(삭제 없음)
+  3. **혼합 (Codex + Grok Bot 등)** — 태스크 성격별로 나눠 배정: 코드 모듈은 Codex, 조사·문서·브라우저는 Grok Bot. 배정안은 Claude가 제안 후 config에 task별 `command:`로 반영. 같은 과제를 둘에게 중복으로 시키지 않는다
+  4. **다른 CLI (Grok CLI / Cursor / agy / gjc)** — Grok Build CLI(grok-4.6), Cursor Ultra의 cursor-agent(Composer·Codex·**Claude Opus/Fable까지**), 디자인·UI는 Antigravity(agy), 멀티모델은 gajae-code(gjc). 고른 뒤 어느 CLI인지 한 번 더 묻는다
 
 선택 결과는 Phase 2에서 `.pumasi/pumasi.config.yaml`의 `defaults.command:`(혼합이면 task별 `command:`)에 반영한다. 각 워커의 정확한 command 문자열은 아래 **"외주 워커 교체"** 절의 것을 그대로 쓴다.
+
+**Grok Bot 팀을 골랐다면(2·3번) 선택 직후 준비 1회** — 아래 "Grok Bot 팀" 절의 준비 절차를 그대로 실행한다. `status`가 앱·세션 없음이면 "Grok Bot 앱에 로그인해 주세요"로 알리고 그 task만 다른 워커로 돌린다.
 
 **선택 직후 설치 확인 1회**: `command -v <cli>` (grok은 실패 시 `$HOME/.grok/bin/grok` 폴백). 미설치·미인증이면 그대로 알리고 중단하거나 사용자에게 다른 워커를 선택받는다. 명시한 Claude 워커를 Codex로 몰래 바꾸지 않는다.
 
@@ -405,7 +407,41 @@ pumasi:
   ```
   빠른 설치를 원하면 `curl -fsSL https://antigravity.google/cli/install.sh | bash` (원격 스크립트를 검증 없이 즉시 실행 — 신뢰할 때만).
 
-**task별 혼합**: 모듈마다 다른 `command:`를 지정하면 codex / grok / gjc / agy에 병렬로 나눠 외주할 수 있다.
+**Grok Bot 팀(`grokbot`)** — Grok Bot 앱의 클라우드 봇 팀 (조사·출처·브라우저·문서):
+
+품앗이에 번들된 브릿지 `skills/pumasi/scripts/grokbot/grokbot.mjs`가 데스크톱 앱 세션을 재사용해 Grok Bot에 job을 보낸다.
+지휘 봇 "품앗이"가 공용 스킬 "품앗이 job 프로토콜"대로 하위 봇에 나눠 맡기고 `JOB_DONE` 줄로 닫는다.
+비공식·비문서 내부 API라 앱 업데이트로 깨질 수 있다(공식 채팅 API 없음).
+
+준비 1회 (Claude가 실행, `$GB`는 브릿지 절대경로 — `${CLAUDE_PLUGIN_ROOT}/skills/pumasi/scripts/grokbot/grokbot.mjs`를 셸에서 풀어 쓴다):
+```bash
+node "$GB" status                  # app·session 이 true 여야 한다 (맥 전용, Grok Bot 앱 로그인 필요)
+node "$GB" team plan               # 팀이 없으면 create 목록이 나온다
+node "$GB" team apply --admin      # 사용자가 Phase 0.5에서 Grok Bot을 고른 것이 생성 동의다. 이미 있으면 갱신만
+```
+첫 실행 때 macOS가 "Grok Bot Safe Storage" 키체인 접근 허용 창을 띄운다 — 사용자에게 "허용"을 눌러 달라고 한 줄로 알린다.
+
+config (task별):
+```yaml
+    - name: market-research
+      command: "node /abs/path/to/grokbot.mjs run --text --queue --timeout 3000 --dest .pumasi/grokbot/market-research"
+      instruction: |
+        목표·완료 기준·산출물을 쓴다(웹 조사·문서 위주). 로컬 파일 경로는 Grok Bot이 볼 수 없다.
+      gates:
+        - name: "요약 회수"
+          command: "[ -f .pumasi/grokbot/market-research/SUMMARY.md ]"
+```
+- `command`의 경로는 config를 쓸 때 **절대경로로 풀어** 넣는다(yaml은 환경변수를 펼치지 않는다).
+- 프롬프트는 마지막 positional 인자로 전달된다(품앗이 규격 그대로). `--text`면 output.txt에 최종 보고 + `[grokbot] state=… job=… dest=…` 줄이 남는다.
+- 종료 코드: 0 성공(회수·해시 검증 통과) · 3 사람 응답 대기 · 4 진행 중(재접속: `node "$GB" watch <job>`) · 5 partial · 6 failed · 7 취소 · 8 회수 실패.
+- 지휘 봇은 job을 한 번에 하나만 받는다. 같은 라운드의 Grok Bot task는 `--queue`로 차례를 기다린다. 가능하면 조사 항목을 task 하나로 묶는다.
+- `--timeout`은 품앗이 `settings.timeout`(기본 3600초)보다 작게 둔다.
+- 산출물 회수: `~/.grokbot/config.json`에 `{"ssh":"user@host"}`(Grok Bot VM으로 가는 SSH, 예: Tailscale)가 있으면 `--dest`로 받아 MANIFEST 해시를 검증한다. 없으면 최종 보고 텍스트만 output.txt로 온다 — 그때 gate는 파일 대신 output.txt 내용으로 건다.
+- 하지 않는 일: 로컬 레포 수정(코드는 Codex task로), 결제·발송·머지·배포·삭제(프로토콜이 차단, 필요하면 그 단계만 blocked).
+- 개인 비서 봇과 같은 VM을 쓰므로 품앗이 팀은 공개 웹 조사·정리 위주로 쓴다. 개인 계정 로그인 작업은 승인 카드 대상이다.
+- 회귀 확인: `node skills/pumasi/scripts/grokbot/test-offline.mjs`.
+
+**task별 혼합**: 모듈마다 다른 `command:`를 지정하면 codex / grok / gjc / agy / grokbot에 병렬로 나눠 외주할 수 있다. 전형적인 혼합은 코드 모듈 = Codex, 조사·문서 = Grok Bot이다.
 
 > ⚠️ **같은 과제를 여러 워커에게 시키는 "토너먼트"는 품앗이의 기능이 아니다.** 품앗이의 본질은 *분할*이고
 > 토너먼트는 *중복*이라 "단일 파일 작업 = 병렬 이점 없음" 규칙과 충돌한다. 경쟁·채점·승자 채택이 필요하면

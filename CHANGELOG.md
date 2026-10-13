@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.18.0 (2026-10-13)
+- **Grok Bot 팀 워커 추가.** Grok Bot 앱의 클라우드 봇 팀(지휘·리서치·브라우저·코딩·검증·정리)에 job을 맡기는 브릿지 `skills/pumasi/scripts/grokbot/grokbot.mjs`를 번들했다. 데스크톱 앱 세션을 재사용하는 비공식·비문서 내부 API라 앱 업데이트로 깨질 수 있다(맥 전용, Grok Bot 앱 로그인 필요). 웹 조사·출처 확인·문서·브라우저 작업용이며 로컬 레포는 고치지 않는다.
+- **워커 선택(Phase 0.5) 재구성.** 호스트 기본 / Grok Bot 팀 / 혼합(코드는 Codex, 조사·문서는 Grok Bot — 같은 과제 중복 금지) / 다른 CLI(Grok CLI·Cursor·agy·gjc). 요청이나 프로젝트 config에 워커가 이미 있으면 묻지 않는다.
+- 팀은 `team/team.json` 선언을 `grokbot team apply --admin`으로 계정에 반영한다(이름 기준 생성·갱신, 삭제 없음). 공용 스킬 "품앗이 job 프로토콜"이 계획 파일·병렬/순차 위임·검증 필수·MANIFEST/SUMMARY·`JOB_DONE` 줄을 정한다. job 중 오너에게 선택지를 띄우지 않고 되돌릴 수 있는 결정은 기본값으로 진행한다.
+- 브릿지: 엄격한 완료 판정(마지막 줄 형식·status 열거·steps·정확한 out 경로), job 장부 `~/.grokbot/jobs`와 `watch`(재접속)·`cancel`(팀 봇 중단 확인+지휘 봇 통지)·`--queue`(지휘 봇당 job 1개), 기본 금지 규칙 고정(`--constraints`는 덧붙음), 관리 명령 `--admin` 게이트, `~/.grokbot/config.json`의 SSH로 산출물 회수·MANIFEST 해시 검증(`fetch`, run이 자동 수행, partial·failed도 회수). 종료 코드 0 성공 · 3 대기 · 4 진행 중 · 5 partial · 6 failed · 7 취소 · 8 회수 실패.
+- 검증: `test-offline.mjs` 13건(완료 오판 재현 사례·관리 명령 게이트), 실계정 E2E(지휘 봇 위임 리서치→검증→정리 ok 3/3, watch 재접속, 동시 job 거절, cancel 확인, 자동 회수 succeeded), 품앗이 혼합 실행(Codex slugify done + Grok Bot 조사 partial 회수·게이트 통과). insane-review(Pro) 리뷰의 P0 지적을 반영했다.
+
 ## 1.17.2 (2026-10-13)
 - **gptaku-core 라우팅 적용.** `gptaku-core`를 의존성으로 선언하고 `routing.json`을 추가해, 이 플러그인 스킬에 맞는 요청이 오면 직접 처리하거나 기본 도구를 쓰기 전에 이 스킬을 먼저 쓰게 했다. 기존 사용자는 업데이트 후 `/reload-plugins`를 실행하거나 플러그인을 다시 설치해야 gptaku-core가 함께 설치된다. 끄기: `GPTAKU_ROUTER=off`.
 

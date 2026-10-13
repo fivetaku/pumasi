@@ -13,6 +13,9 @@ pumasi:
   #                #   composer-2.5 (빠른 편집·기본값 급) / gpt-5.3-codex-high (코덱스 계열)
   #                #   claude-opus-5-thinking-high, claude-fable-5-thinking-high (Claude 쿼터 우회!)
   #                # 예: "cursor-agent -p --force --model composer-2.5 --output-format text"
+  # grokbot      : "node <abs>/skills/pumasi/scripts/grokbot/grokbot.mjs run --text --queue --timeout 3000 --dest .pumasi/grokbot/<task>"
+  #                # Grok Bot 앱의 클라우드 봇 팀. 웹 조사·문서·브라우저용(로컬 레포 수정 안 함). 맥 + 앱 로그인 필요.
+  #                # 준비: node <abs>/grokbot.mjs team apply --admin (SKILL.md "Grok Bot 팀" 절)
   # cursor-opus  : "cursor-agent -p --force --model claude-opus-5-thinking-high --output-format text"
   #                # Claude Max 쿼터 소진 시 Opus 대체 경로
   # ※ Codex와 Claude는 report.json 지원. 다른 CLI는 output.txt 기반 통합.
