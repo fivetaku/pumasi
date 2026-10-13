@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.18.1 (2026-10-13)
+- **업데이트 후 첫 실행이 `Missing runtime dependency: yaml`로 멈추던 문제 수정.** `skills/pumasi/node_modules`는 git에 없어서 플러그인 캐시를 교체하면 사라진다(1.17.1 캐시에만 수동 설치본이 있었고 1.17.2·1.18.0 캐시에는 없었다). 이제 `pumasi-job.js`가 `yaml`을 못 찾으면 스킬 폴더에서 `npm install --omit=dev`를 한 번 실행하고 다시 불러온다. 설치도 실패하면 기존 안내 메시지를 그대로 낸다.
+- 검증: `node_modules` 없는 새 사본에서 자동 설치 후 설정 파싱 통과. node 테스트 33·워커 명령 18·grokbot 13 통과.
+
 ## 1.18.0 (2026-10-13)
 - **Grok Bot 팀 워커 추가.** Grok Bot 앱의 클라우드 봇 팀(지휘·리서치·브라우저·코딩·검증·정리)에 job을 맡기는 브릿지 `skills/pumasi/scripts/grokbot/grokbot.mjs`를 번들했다. 데스크톱 앱 세션을 재사용하는 비공식·비문서 내부 API라 앱 업데이트로 깨질 수 있다(맥 전용, Grok Bot 앱 로그인 필요). 웹 조사·출처 확인·문서·브라우저 작업용이며 로컬 레포는 고치지 않는다.
 - **워커 선택(Phase 0.5) 재구성.** 호스트 기본 / Grok Bot 팀 / 혼합(코드는 Codex, 조사·문서는 Grok Bot — 같은 과제 중복 금지) / 다른 CLI(Grok CLI·Cursor·agy·gjc). 요청이나 프로젝트 config에 워커가 이미 있으면 묻지 않는다.

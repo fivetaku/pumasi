@@ -60,10 +60,21 @@ function parsePumasiConfig(configPath) {
 
   if (!fs.existsSync(configPath)) return fallback;
 
+  // node_modules는 git에 없어 플러그인 캐시를 교체하면 사라진다(2026-10-13 v1.18.0 E2E 실측).
+  // 없으면 package-lock 기준으로 스킬 폴더에 한 번 설치하고 다시 불러온다.
   let YAML;
   try {
     YAML = require('yaml');
   } catch {
+    try {
+      process.stderr.write(`pumasi: installing runtime dependency (yaml) in ${SKILL_DIR}\n`);
+      require('child_process').execFileSync('npm', ['install', '--no-audit', '--no-fund', '--omit=dev', '--silent'], { cwd: SKILL_DIR, stdio: ['ignore', 'ignore', 'inherit'] });
+      YAML = require(require.resolve('yaml', { paths: [SKILL_DIR] }));
+    } catch {
+      YAML = null;
+    }
+  }
+  if (!YAML) {
     exitWithError(
       [
         'Missing runtime dependency: yaml',
