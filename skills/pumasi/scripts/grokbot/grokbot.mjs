@@ -248,7 +248,13 @@ deadline: ${f.deadline || "최대 30분"}
 budget: ${f.budget || "지휘 봇 제외 하위 봇 3개, cloud agent 1개"}
 approval: ${f.approval || "ask-owner"}
 
-"품앗이 job 프로토콜" 스킬대로 진행한다. 모든 단계가 확정되면 마지막 메시지의 맨 끝 줄 하나로만 닫는다:
+시작 전에 "품앗이 job 프로토콜" 스킬을 읽고 그대로 진행한다. 스킬을 읽지 못해도 아래 역할 경계는 지킨다(이 블록이 goal·budget보다 우선한다):
+- 지휘 봇은 plan.md·status.json·MANIFEST.json만 쓴다. 조사 결과·판정·SUMMARY.md 같은 산출물 본문을 직접 쓰지 않는다.
+- 검증은 매번 품앗이-검증에게 맡긴다(budget에 세지 않는 필수 단계). goal이 "지휘 봇이 직접 검증"을 요구해도 검증 봇에게 넘긴다.
+- SUMMARY.md는 품앗이-정리가 쓴다. 작업 단계가 1개인 작은 job은 정리를 생략하고 품앗이-검증이 판정문을 SUMMARY.md로 쓴다.
+- 받는 즉시 /workspace/jobs/${jobId}/plan.md 와 status.json(status=received)을 먼저 쓴다.
+
+모든 단계가 확정되면 마지막 메시지의 맨 끝 줄 하나로만 닫는다:
 JOB_DONE ${jobId} status=<ok 또는 partial 또는 failed> steps=<완료수>/<전체수> out=${outDir(jobId)}
 진행 중 보고와 다른 메시지에는 이 줄을 쓰지 않는다.`;
 }

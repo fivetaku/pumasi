@@ -327,6 +327,36 @@ Round 2: Round 1 결과 사용하는 태스크 (2개 병렬)
 Round 3: 최종 통합 (Claude 직접)
 ```
 
+**단계형 실행 (결과를 보고 다음 라운드를 정한다)** — 조사→구현처럼 앞 결과가 뒤 지시를 바꾸는 작업, 특히 혼합(Grok Bot 조사 + Codex 구현)에 기본으로 쓴다.
+1. `start`는 라운드 1만 띄운다. 라운드 2 이후 task는 config에 미리 적어 두되 지시는 "앞 라운드 결과와 호스트 결정을 따른다" 수준으로 둔다.
+2. 라운드 1이 끝나면 호스트가 결과(`results --compact`, 회수된 `SUMMARY.md`)와 게이트를 읽고 **결론을 정한다** — 채택할 규칙·버릴 가정·남은 미확인.
+3. `pumasi.sh start-round --round 2 --note "<결론 3~6줄>" <JOB_DIR>`로 다음 라운드를 띄운다. 워커 프롬프트에는 앞 라운드 결과(보고서 요약 또는 output 앞 2000자)와 `## 호스트 결정` 블록이 함께 들어가고, 결정문은 `job.json`의 `roundNotes`에 남는다.
+4. 라운드 1 결과가 부족하면 다음 라운드로 넘어가지 말고 `redelegate --correction`으로 그 task를 다시 시키거나 사용자에게 보고한다. partial을 그대로 넘기지 않는다.
+
+같은 라운드 안의 task는 계속 병렬이다. 앞 결과에 기대지 않는 task까지 라운드를 나누면 느려지기만 하니 의존이 있을 때만 나눈다.
+
+**후보 경쟁 (`candidates`)** — 정답을 기계로 판정할 수 없는 task에만: 조사 방향·이름 짓기·문구·설계안·구조 초안.
+게이트가 강한 코드 task(테스트·타입 체크로 판정되는 것)에는 쓰지 않는다 — 둘 다 통과해 고를 의미가 없고 비용만 두 배다(2026-08 codex·grok 비교 실측).
+
+```yaml
+    - name: naming
+      candidates: 2                    # 2~3. 최대 3
+      candidate_commands:              # 선택: 후보마다 다른 워커. 없으면 command 를 같이 쓴다
+        - "codex exec --dangerously-bypass-approvals-and-sandbox"
+        - "node /abs/grokbot.mjs run --text --queue --timeout 1500 --dest .pumasi/grokbot/naming-c2"
+      instruction: |
+        서비스 이름 후보 10개와 각각의 근거를 docs/naming.md 로 쓴다 ...
+      gates:
+        - name: "결과 존재"
+          command: "ls docs/naming-c*.md >/dev/null 2>&1 || ls .pumasi/grokbot/naming-c*/SUMMARY.md >/dev/null 2>&1"
+```
+
+- 펼치면 `naming~c1`, `naming~c2` 두 task가 같은 라운드에서 병렬로 돈다. 지시 끝에 "후보 i/N, 산출물 이름에 `-c<i>`, 다른 후보 파일 금지, 분명한 접근 하나를 끝까지"가 자동으로 붙는다.
+- 게이트는 후보마다 따로 돈다. 후보별 파일 이름(`-c1`, `-c2`)으로 확인하게 쓴다.
+- **고르기(호스트)**: 둘 다 끝나면 호스트가 기준표를 먼저 쓰고(3~5개 기준, 예: 요구 충족·근거·차별성·실행 가능성) 후보를 같은 기준으로 비교해 하나를 고른다. 채택 이유와 버린 후보의 쓸 만한 점을 한 줄씩 남긴다. 합치기는 기본으로 하지 않는다 — 필요하면 다음 라운드 task로 "채택안 + 버린 후보의 X만 반영"을 맡긴다.
+- 사용자가 직접 고르겠다고 했으면 AskUserQuestion으로 후보 요약을 선택지로 보여 준다(후보 2~3개 + "다시 생성").
+- Grok Bot 후보는 지휘 봇이 job을 하나씩 받아 `--queue`로 차례를 기다린다(실제로는 순차). 주간 사용량이 있으니 Grok Bot 후보는 1개까지로 둔다.
+
 **선택된 워커 CLI 필요** (Claude Code 호스트 기본은 Codex, 다른 호스트 기본은 Claude):
 ```bash
 command -v codex  # 설치 확인

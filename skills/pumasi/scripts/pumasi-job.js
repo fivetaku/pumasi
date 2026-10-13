@@ -38,6 +38,33 @@ function exitWithError(message) {
   process.exit(1);
 }
 
+// 후보 경쟁: 정답을 기계로 판정할 수 없는 task(조사 방향·이름·문구·설계안)에만 쓴다.
+// candidates: N(2~3) 이면 같은 지시를 N개 task로 펼친다. 이름은 <name>~c1.., 산출물 경로가 겹치지 않게
+// 후보 번호를 지시에 덧붙인다. candidate_commands 로 후보마다 다른 워커를 줄 수 있다.
+// 호스트는 끝난 뒤 기준표로 하나를 골라 채택하고 나머지는 버린다(머지하지 않는다).
+const MAX_CANDIDATES = 3;
+function expandCandidates(tasks) {
+  const out = [];
+  for (const t of tasks) {
+    const n = Math.trunc(Number(t && t.candidates) || 1);
+    if (n <= 1) { out.push(t); continue; }
+    if (n > MAX_CANDIDATES) exitWithError(`task '${t.name}': candidates는 최대 ${MAX_CANDIDATES}개다 (받은 값 ${n}).`);
+    const cmds = Array.isArray(t.candidate_commands) ? t.candidate_commands : [];
+    for (let i = 1; i <= n; i++) {
+      const { candidates, candidate_commands, ...rest } = t;
+      out.push({
+        ...rest,
+        name: `${t.name}~c${i}`,
+        command: cmds[i - 1] || t.command,
+        candidate_of: String(t.name),
+        candidate_index: i,
+        instruction: `${t.instruction ? String(t.instruction).trim() + '\n\n' : ''}## 후보 경쟁\n이 task는 후보 ${i}/${n}이다. 같은 지시를 받은 다른 후보와 비교돼 하나만 채택된다.\n- 산출물 파일 이름 끝에 -c${i} 를 붙여 다른 후보와 겹치지 않게 한다(예: docs/naming-c${i}.md).\n- 다른 후보의 파일은 읽지도 고치지도 않는다.\n- 안전한 평균보다 이 후보만의 분명한 접근을 하나 골라 끝까지 밀고, 그 선택 이유를 맨 앞에 3줄로 쓴다.`,
+      });
+    }
+  }
+  return out;
+}
+
 function resolveDefaultConfigFile() {
   // 1순위: CWD의 .pumasi/ (프로젝트별 config)
   const cwdConfig = path.join(process.cwd(), '.pumasi', 'pumasi.config.yaml');
@@ -118,6 +145,8 @@ function parsePumasiConfig(configPath) {
     // 하위 호환: members 키도 허용
     merged.pumasi.tasks = pumasi.members;
   }
+
+  merged.pumasi.tasks = expandCandidates(merged.pumasi.tasks);
 
   // Calculate max round
   let maxRound = 1;
@@ -359,7 +388,7 @@ function printHelp() {
 
 Usage:
   pumasi-job.sh start [--host claude-code|omo|codex|other] [--config path] [--jobs-dir path] [--round N] "project context"
-  pumasi-job.sh start-round --round N <jobDir>
+  pumasi-job.sh start-round --round N [--note "host decision"] <jobDir>
   pumasi-job.sh status [--json|--text|--checklist] [--verbose] <jobDir>
   pumasi-job.sh wait [--cursor CURSOR] [--interval-ms N] [--timeout-ms N] <jobDir>
   pumasi-job.sh results [--json] <jobDir>
@@ -377,6 +406,7 @@ Round-based execution:
   Tasks can have a 'round' field (default: 1). Round 1 tasks run first,
   then round 2 uses round 1 results as context, etc.
   start-round spawns workers for a specific round of an existing job.
+  --note adds the host decision made after reviewing earlier rounds to that round prompt.
 
 Before running: edit pumasi.config.yaml with your task list.
 `);
@@ -451,6 +481,7 @@ function cmdStart(options, prompt) {
       instruction: t.instruction ? String(t.instruction).trim() : null,
       cwd: t.cwd ? String(t.cwd) : null,
       round: Number(t.round) || 1,
+      ...(t.candidate_of ? { candidate_of: String(t.candidate_of), candidate_index: Number(t.candidate_index) } : {}),
       gates: Array.isArray(t.gates) ? t.gates.map(g => ({
         name: String(g.name || 'unnamed'),
         command: String(g.command || ''),
@@ -898,9 +929,17 @@ function cmdStartRound(options, jobDir) {
   jobMeta.currentRound = roundNum;
   atomicWriteJson(path.join(resolvedJobDir, 'job.json'), jobMeta);
 
+  // 단계형 실행: 호스트가 앞 라운드 결과를 읽고 정한 결론·지시를 이번 라운드에 얹는다(--note).
+  const hostNote = options.note ? String(options.note).trim() : '';
+  const noteBlock = hostNote ? `## 호스트 결정 (앞 라운드 결과를 검토한 뒤)\n${hostNote}\n\n---\n` : '';
+  if (hostNote) {
+    jobMeta.roundNotes = { ...(jobMeta.roundNotes || {}), [roundNum]: hostNote };
+    atomicWriteJson(path.join(resolvedJobDir, 'job.json'), jobMeta);
+  }
+
   // Write round-specific prompt
   const roundPromptPath = path.join(resolvedJobDir, `prompt-round${roundNum}.txt`);
-  const roundPrompt = prevRoundContext + basePrompt;
+  const roundPrompt = prevRoundContext + noteBlock + basePrompt;
   fs.writeFileSync(roundPromptPath, roundPrompt, 'utf8');
 
   // Reset wait cursor so wait loop works for new round
