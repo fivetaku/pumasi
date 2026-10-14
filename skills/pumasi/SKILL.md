@@ -454,7 +454,7 @@ node "$GB" team apply --admin      # 사용자가 Phase 0.5에서 Grok Bot을 �
 config (task별):
 ```yaml
     - name: market-research
-      command: "node /abs/path/to/grokbot.mjs run --text --queue --timeout 3000 --dest .pumasi/grokbot/market-research"
+      command: "node /abs/path/to/grokbot.mjs run --text --queue --partial-ok --timeout 3000 --dest .pumasi/grokbot/market-research"
       instruction: |
         목표·완료 기준·산출물을 쓴다(웹 조사·문서 위주). 로컬 파일 경로는 Grok Bot이 볼 수 없다.
       gates:
@@ -466,7 +466,11 @@ config (task별):
 - 종료 코드: 0 성공(회수·해시 검증 통과) · 3 사람 응답 대기 · 4 진행 중(재접속: `node "$GB" watch <job>`) · 5 partial · 6 failed · 7 취소 · 8 회수 실패.
 - 지휘 봇은 job을 한 번에 하나만 받는다. 같은 라운드의 Grok Bot task는 `--queue`로 차례를 기다린다. 가능하면 조사 항목을 task 하나로 묶는다.
 - `--timeout`은 품앗이 `settings.timeout`(기본 3600초)보다 작게 둔다.
-- 산출물 회수: `~/.grokbot/config.json`에 `{"ssh":"user@host"}`(Grok Bot VM으로 가는 SSH, 예: Tailscale)가 있으면 `--dest`로 받아 MANIFEST 해시를 검증한다. 없으면 최종 보고 텍스트만 output.txt로 온다 — 그때 gate는 파일 대신 output.txt 내용으로 건다.
+- `--partial-ok`(권장): 지휘 봇이 partial로 닫아도 산출물 회수·해시 검증이 통과하면 종료 코드 0으로 끝낸다. 그래야 품앗이 게이트가 건너뛰지 않고 내용을 직접 판정한다. output.txt 끝의 `[grokbot] state=partial` 줄로 partial이었다는 사실은 남는다.
+- 산출물 회수: `--dest` 폴더로 받아 MANIFEST(JSON 배열 또는 `{files:[...]}`) 해시를 맥에서 다시 계산해 대조한다. 해시로 검증된 파일이 0개면 실패다.
+  - `~/.grokbot/config.json`에 `{"ssh":"user@host"}`(Grok Bot VM으로 가는 SSH, 예: Tailscale)가 있으면 SSH로 받는다.
+  - 없거나 SSH가 안 되면 **대화 회수**: 지휘 봇에게 파일을 base64로 메시지에 실어 보내게 하고 받는다(약 1분, 전체 400KB 이하. 넘으면 MANIFEST·SUMMARY.md만). 직접 실행은 `node "$GB" fetch <job> --chat --dest <dir>`.
+- 점검: `node "$GB" doctor` — 앱 버전, 세션 파일 형식, RPC 응답 모양(완료 판정에 쓰는 필드 포함), 팀 선언 일치, 회수 채널을 읽기 전용으로 확인한다. 앱 업데이트 뒤나 job이 이상하게 끝날 때 먼저 돌린다.
 - 하지 않는 일: 로컬 레포 수정(코드는 Codex task로), 결제·발송·머지·배포·삭제(프로토콜이 차단, 필요하면 그 단계만 blocked).
 - 개인 비서 봇과 같은 VM을 쓰므로 품앗이 팀은 공개 웹 조사·정리 위주로 쓴다. 개인 계정 로그인 작업은 승인 카드 대상이다.
 - 회귀 확인: `node skills/pumasi/scripts/grokbot/test-offline.mjs`.

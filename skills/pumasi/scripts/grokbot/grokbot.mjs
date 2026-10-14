@@ -469,17 +469,24 @@ async function fetchJob(s, jobId, { dest } = {}) {
   const tmp = join(STATE_DIR, `fetch-${jobId}.tar`);
   writeFileSync(tmp, tarBuf, { mode: 0o600 });
   try { execFileSync("/usr/bin/tar", ["-xf", tmp, "-C", target], { stdio: "pipe" }); } finally { rmSync(tmp, { force: true }); }
-  const local = walk(target).sort();
+  return { ...verifyLocal(target, jobId), kb, via: "ssh" };
+}
 
-  // 3) MANIFEST 대조 — 경로는 out 디렉터리 기준 상대경로로만 인정, 해시는 맥에서 다시 계산
+// 받은 산출물 폴더를 MANIFEST·해시로 검증한다(SSH·대화 회수 공통).
+function verifyLocal(target, jobId) {
+  const remote = outDir(jobId);
+  const local = walk(target).sort();
+  // MANIFEST 대조 — 경로는 out 디렉터리 기준 상대경로로만 인정, 해시는 맥에서 다시 계산
   const problems = [];
   let manifest = [];
   try { manifest = JSON.parse(readFileSync(join(target, "MANIFEST.json"), "utf8")); } catch { problems.push("MANIFEST.json이 없거나 JSON이 아니다"); }
+  // 봇이 배열 대신 {files:[...]} 로 쓰는 경우가 있다(2026-10-14 실측). 둘 다 읽고, 검증된 파일이 0개면 실패로 본다.
+  const entries = Array.isArray(manifest) ? manifest : Array.isArray(manifest?.files) ? manifest.files : [];
   const checked = [];
-  for (const m of Array.isArray(manifest) ? manifest : []) {
+  for (const m of entries) {
     if (m.kind && m.kind !== "file") { checked.push({ kind: m.kind, ref: m.url ?? m.path ?? null, bot: m.bot ?? null, verified: false, note: "파일 아님(PR·URL은 별도 확인)" }); continue; }
-    const rel = String(m.path ?? "").startsWith(remote) ? String(m.path).slice(remote.length) : String(m.path ?? "");
-    if (!rel || rel.startsWith("/") || rel.split("/").includes("..")) { problems.push(`허용되지 않는 경로: ${m.path}`); continue; }
+    const rel = safeRel(m.path, remote);
+    if (!rel) { problems.push(`허용되지 않는 경로: ${m.path}`); continue; }
     const p = join(target, rel);
     if (!existsSync(p)) { problems.push(`MANIFEST에 있는데 없음: ${rel}`); continue; }
     const sha = crypto.createHash("sha256").update(readFileSync(p)).digest("hex");
@@ -488,10 +495,107 @@ async function fetchJob(s, jobId, { dest } = {}) {
     checked.push({ path: rel, bot: m.bot ?? null, sha256ok: ok });
   }
   if (!local.includes("SUMMARY.md")) problems.push("SUMMARY.md가 없다");
+  if (!checked.some((c) => c.sha256ok)) problems.push("MANIFEST로 해시를 검증한 파일이 하나도 없다");
   const listed = new Set(checked.map((c) => c.path));
   const extra = local.filter((f) => f !== "MANIFEST.json" && !listed.has(f));
+  return { jobId, dest: target, files: local.length, checked, extra, problems, ok: problems.length === 0 };
+}
 
-  return { jobId, dest: target, files: local.length, kb, checked, extra, problems, ok: problems.length === 0 };
+function safeRel(path, remote) {
+  const raw = String(path ?? "");
+  const rel = raw.startsWith(remote) ? raw.slice(remote.length) : raw;
+  if (!rel || rel.startsWith("/") || rel.split("/").some((x) => x === ".." || x === "")) return null;
+  return rel;
+}
+
+// ── 대화 회수: SSH 채널이 없는 사용자용. 지휘 봇이 파일을 base64로 메시지에 실어 보내고, 맥에서 해시로 검증한다 ──
+const CHAT_FETCH_MAX = 400 * 1024;
+async function fetchViaChat(s, jobId, { dest, timeoutSec = 600, botRef = "품앗이" } = {}) {
+  if (!JOB_ID_RE.test(jobId)) throw new BridgeError(`job id 형식이 아니다: ${jobId}`);
+  const bot = await resolve(s, botRef);
+  const out = outDir(jobId);
+  const prompt = `JOB ${jobId} 회수 요청 (Claude Code). 새 작업이 아니다 — 위임하지 말고 너(지휘 봇)가 셸로 직접 한다.
+${out} 아래의 MANIFEST.json 과, MANIFEST 에 kind=file 로 적힌 파일 전부를 아래 형식 그대로 메시지로 보낸다.
+- 파일마다: 첫 줄 \`=== FILE <out 기준 상대경로> ===\`, 다음 줄부터 \`base64 -w 76 <파일>\` 출력 그대로, 끝 줄 \`=== END ===\`
+- MANIFEST.json 도 같은 형식으로 맨 먼저 보낸다(상대경로 MANIFEST.json).
+- 셸 출력을 손으로 다시 쓰지 말고 그대로 붙인다. 한 메시지가 길면 파일 경계에서 나눠 여러 메시지로 보낸다.
+- 전체가 ${Math.round(CHAT_FETCH_MAX / 1024)}KB를 넘으면 MANIFEST.json 과 SUMMARY.md 만 보낸다.
+- 모두 보냈으면 마지막 메시지의 맨 끝 줄에 정확히 \`FETCH_DONE ${jobId}\` 를 쓴다. 설명 문장은 쓰지 않는다.`;
+  const clientNonce = crypto.randomUUID();
+  await call(s, "sendPrompt", { agentId: bot.id, prompt, clientNonce });
+  const deadline = Date.now() + timeoutSec * 1000;
+  let echoSeq = null;
+  const seen = new Map();
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 5000));
+    if (echoSeq == null) {
+      const st = await call(s, "promptAcceptanceStatus", { accountSlot: "host", agentId: bot.id, clientNonce });
+      if (st.outcome !== "found" || st.record?.status !== "accepted") continue;
+      const all = await tail(s, bot, 200);
+      echoSeq = all.find((e) => e.id === st.record.echoEntryId)?.seq ?? null;
+      if (echoSeq == null) continue;
+    }
+    for (const e of await tail(s, bot, 200)) if (e.seq > echoSeq && e.kind === "send-message") seen.set(e.id, e);
+    const text = [...seen.values()].sort((a, b) => a.seq - b.seq).map(entryText).join("\n");
+    if (!new RegExp(`(^|\\n)FETCH_DONE ${jobId}\\s*$`).test(text.trim())) continue;
+    const target = dest || join(process.cwd(), ".grokbot", "out", jobId);
+    mkdirSync(target, { recursive: true });
+    const re = /^=== FILE (.+?) ===\n([\s\S]*?)\n=== END ===$/gm;
+    let m, total = 0;
+    const written = [];
+    while ((m = re.exec(text.replace(/\r/g, "")))) {
+      const rel = safeRel(m[1].trim(), out);
+      if (!rel) throw new BridgeError(`허용되지 않는 경로: ${m[1]}`);
+      const buf = Buffer.from(m[2].replace(/[^A-Za-z0-9+/=]/g, ""), "base64");
+      total += buf.length;
+      if (total > CHAT_FETCH_MAX * 2) throw new BridgeError("대화 회수량이 상한을 넘는다");
+      mkdirSync(dirname(join(target, rel)), { recursive: true });
+      writeFileSync(join(target, rel), buf);
+      written.push(rel);
+    }
+    if (!written.length) throw new BridgeError("대화 회수: 파일 블록을 하나도 찾지 못했다");
+    return { ...verifyLocal(target, jobId), via: "chat", received: written };
+  }
+  throw new BridgeError(`대화 회수 시간 초과(${timeoutSec}초)`);
+}
+
+// ── doctor: 앱 업데이트로 비공식 API가 바뀌었는지 읽기 전용으로 점검한다 ──
+const KNOWN = { appVersions: /^0\.(6[89]|7\d)\./, descriptorVersions: [1, 2, 3] };
+async function doctor() {
+  const rows = [];
+  const add = (name, state, detail) => rows.push({ name, state, detail });
+  const v = appVersion();
+  add("앱 설치·버전", existsSync("/Applications/Grok Bot.app") ? (KNOWN.appVersions.test(v) ? "ok" : "warn") : "fail", `${v}${KNOWN.appVersions.test(v) ? "" : " (실측한 0.68~0.7x 밖 — RPC가 바뀌었을 수 있다)"}`);
+  let s;
+  try {
+    const w = existsSync(DESCRIPTOR) ? JSON.parse(readFileSync(DESCRIPTOR, "utf8")) : null;
+    add("세션 파일 형식", !w ? "warn" : KNOWN.descriptorVersions.includes(w.version ?? 1) ? "ok" : "fail", w ? `descriptor v${w.version ?? 1}` : "descriptor 없음(EnsureSandBox로 대체)");
+    s = loadSession();
+    if (!s.url) await wake(s);
+    add("세션 복호화·게이트웨이", s.url ? "ok" : "fail", s.url ? new URL(s.url).hostname.replace(/^[^.]+/, "*") : "주소 없음");
+  } catch (e) { add("세션 복호화·게이트웨이", "fail", redact(e.message)); return rows; }
+  const probe = async (name, fn, check) => {
+    try { const r = await fn(); const c = check(r); add(name, c === true ? "ok" : "fail", c === true ? "" : c); }
+    catch (e) { add(name, "fail", redact(e.message).slice(0, 160)); }
+  };
+  let team = [];
+  await probe("listAgents", async () => (team = await listRaw(s)), (r) => (Array.isArray(r) && r.every((a) => "id" in a && "name" in a) ? true : "응답 모양이 다르다"));
+  const lead = team.find((a) => a.name === "품앗이");
+  if (lead) {
+    await probe("봇 상태 필드", async () => lead, (a) => (["isRunningTurn", "isRunning", "awaitingUserResponse"].every((k) => k in a) ? true : "isRunningTurn 등 필드가 없다 — 완료 판정이 깨진다"));
+    await probe("promptAcceptanceStatus", () => call(s, "promptAcceptanceStatus", { accountSlot: "host", agentId: lead.id, clientNonce: "doctor-probe" }), (r) => (r?.outcome === "not-found" ? true : `예상 밖 응답: ${JSON.stringify(r).slice(0, 80)}`));
+    await probe("getAgentTranscriptTail", () => call(s, "getAgentTranscriptTail", { id: lead.id, limit: 1 }), (r) => (Array.isArray(r?.entries) ? true : "entries 배열이 없다"));
+    await probe("getAsyncTasks·getSubagents", async () => [await call(s, "getAsyncTasks", { id: lead.id }), await call(s, "getSubagents", { id: lead.id })], (r) => (r.every(Array.isArray) ? true : "배열이 아니다"));
+  } else add("품앗이 팀", "warn", "지휘 봇 '품앗이'가 없다 — grokbot team apply --admin");
+  try {
+    const plan = await teamSync(s, TEAM_FILE, { apply: false });
+    const diff = plan.actions.filter((a) => a.op !== "ok");
+    add("팀 선언 일치", diff.length ? "warn" : "ok", diff.length ? diff.map((a) => `${a.name}:${a.op}`).join(", ") : "봇·그룹·스킬 변경 없음");
+  } catch (e) { add("팀 선언 일치", "fail", redact(e.message).slice(0, 160)); }
+  const host = bridgeConfig().ssh;
+  if (!host) add("회수 채널", "warn", "SSH 없음 — 대화 회수(fetch --chat)로 받는다");
+  else { try { await sshReady(s, host); add("회수 채널", "ok", "SSH"); } catch (e) { add("회수 채널", "fail", redact(e.message).slice(0, 160)); } }
+  return rows;
 }
 
 // ── team: 선언형 팀 파일(team.json)을 계정에 반영. 이름 기준 생성·갱신만 하고 삭제는 하지 않는다 ──
@@ -571,9 +675,10 @@ async function teamSync(s, file, { apply = false } = {}) {
 // run·watch 가 원격 완료를 받으면 회수 채널이 있을 때 바로 가져와 검증한다(--no-fetch 로 끔).
 async function finish(s, rec, opt = {}) {
   // partial·failed 도 부분 산출물은 가져온다. 성공으로 바꾸는 건 status=ok + 검증 통과일 때뿐이다.
-  if (!["remote_completed", "partial", "failed"].includes(rec.state) || opt["no-fetch"] || !bridgeConfig().ssh) return rec;
+  if (!["remote_completed", "partial", "failed"].includes(rec.state) || opt["no-fetch"]) return rec;
+  const dest = typeof opt.dest === "string" ? opt.dest : undefined;
   try {
-    rec.fetch = await fetchJob(s, rec.jobId, { dest: typeof opt.dest === "string" ? opt.dest : undefined });
+    rec.fetch = bridgeConfig().ssh ? await fetchJob(s, rec.jobId, { dest }) : await fetchViaChat(s, rec.jobId, { dest, botRef: rec.botId });
   } catch (e) {
     rec.fetch = { ok: false, problems: [String(e.message || e)] };
   }
@@ -598,17 +703,19 @@ function parse(argv) {
 const HELP = `grokbot — Grok Bot 브릿지 (비공식 내부 API, macOS)
 
 워커 명령 (품앗이가 쓰는 것)
-  grokbot run "목표" [--bot 품앗이] [--timeout 900] [--text] [--dest 경로] [--queue [--queue-timeout 3600]]
+  grokbot run "목표" [--bot 품앗이] [--timeout 900] [--text] [--dest 경로] [--queue [--queue-timeout 3600]] [--partial-ok]
         [--deliverables ..] [--constraints ..(기본 금지에 덧붙음)] [--context ..] [--deadline ..] [--budget ..] [--approval auto|ask-owner]
                      job을 장부에 기록하고 지휘 봇에 보낸 뒤 끝날 때까지 지켜본다.
   grokbot watch <jobId> [--timeout 900]   빠져나온 job에 다시 붙는다
   grokbot cancel <jobId>                  지휘 봇·팀 봇을 중단하고 멈췄는지 확인한다
-  grokbot fetch <jobId> [--dest 경로]     VM 산출물을 SSH로 가져와 MANIFEST 해시 검증(기본 ./.grokbot/out/<id>/)
-                     run·watch 는 원격 완료 후 자동으로 fetch 한다(--no-fetch 로 끔, ~/.grokbot/config.json 의 ssh 필요)
+  grokbot fetch <jobId> [--dest 경로] [--chat]   VM 산출물을 가져와 MANIFEST 해시 검증(기본 ./.grokbot/out/<id>/)
+                     ~/.grokbot/config.json 의 ssh 가 있으면 SSH, 없거나 --chat 이면 지휘 봇이 대화로 보낸 base64 를 받는다
+                     run·watch 는 원격 완료 후 자동으로 fetch 한다(--no-fetch 로 끔)
+  grokbot doctor                          앱 버전·세션 형식·RPC 응답 모양·팀 선언·회수 채널 점검(읽기 전용)
   grokbot jobs                            장부의 job 목록
   grokbot bots [--json] | state <bot> | tail <bot> [--limit 40] [--dump f.json] | status
 
-  종료 코드: 0 성공(회수·검증 통과, 또는 회수 채널 없을 때 원격 완료) · 8 회수·검증 실패 · 3 사람 응답 대기 · 4 진행 중(watch 시간 초과) · 5 partial · 6 failed · 7 취소
+  종료 코드: 0 성공(회수·검증 통과. --partial-ok 면 partial 도 회수되면 0) · 8 회수·검증 실패 · 3 사람 응답 대기 · 4 진행 중(watch 시간 초과) · 5 partial · 6 failed · 7 취소
 
 관리 명령 (--admin 필요)
   grokbot team plan|apply [team/team.json]   팀(봇·그룹·스킬) 선언 반영. 이름 기준 생성·갱신, 삭제 안 함
@@ -642,6 +749,8 @@ async function main() {
   if (!s.url) throw new BridgeError("게이트웨이 주소를 받지 못했다. Grok Bot 앱을 열어 다시 로그인하라.");
   const report = (rec) => {
     process.exitCode = EXIT[rec.state] ?? 4;
+    // --partial-ok: partial 이어도 산출물을 받았으면 0 으로 끝내 품앗이 게이트가 내용을 판정하게 한다(footer 의 state 는 그대로).
+    if (opt["partial-ok"] && rec.state === "partial" && rec.fetch?.ok) process.exitCode = 0;
     const view = { jobId: rec.jobId, bot: rec.bot, state: rec.state, result: rec.result ?? null, outputDir: outDir(rec.jobId), ...(rec.gap ? { warning: "대화 창 밖으로 밀린 출력이 있을 수 있음" } : {}), ...(rec.invalidMarker ? { invalidMarker: rec.invalidMarker } : {}), ...(rec.cancel ? { cancel: rec.cancel } : {}), ...(rec.fetch ? { fetch: { ok: rec.fetch.ok, dest: rec.fetch.dest, files: rec.fetch.files, problems: rec.fetch.problems } } : {}) };
     if (opt.text) {
       const body = rec.result?.final ?? rec.result?.reason ?? "";
@@ -672,8 +781,16 @@ async function main() {
       const r = OPEN_STATES.has(rec.state) ? await watch(s, rec, { timeoutSec: Number(opt.timeout) || 900 }) : rec;
       return report(await finish(s, r, opt));
     }
+    case "doctor": {
+      const rows = await doctor();
+      const mark = { ok: "ok  ", warn: "warn", fail: "FAIL" };
+      out(rows.map((r) => `${mark[r.state]}  ${r.name}${r.detail ? ` — ${r.detail}` : ""}`).join("\n"));
+      process.exitCode = rows.some((r) => r.state === "fail") ? 1 : 0;
+      return;
+    }
     case "fetch": {
-      const r = await fetchJob(s, pos[0], { dest: typeof opt.dest === "string" ? opt.dest : undefined });
+      const dest = typeof opt.dest === "string" ? opt.dest : undefined;
+      const r = opt.chat || !bridgeConfig().ssh ? await fetchViaChat(s, pos[0], { dest }) : await fetchJob(s, pos[0], { dest });
       if (existsSync(jobPath(pos[0]))) {
         const rec = loadJob(pos[0]);
         if (rec.state === "remote_completed" || rec.state === "fetch_invalid") rec.state = r.ok ? "succeeded" : "fetch_invalid";

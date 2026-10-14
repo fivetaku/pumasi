@@ -68,6 +68,8 @@ approval: auto | ask-owner
 - 작업 디렉터리 `/workspace/jobs/<id>/<봇이름>/`, 산출물 `/workspace/mailbox/out/<id>/<봇이름>/`만 쓴다. 다른 봇 폴더는 읽기만 한다.
   - 예외: 품앗이-정리는 `/workspace/mailbox/out/<id>/SUMMARY.md`를 쓴다. 정리를 생략한 작은 job에서는 품앗이-검증이 판정문을 그 자리에 쓴다.
 - 품앗이-검증은 완료 기준·출처·반례를 대조해 `통과|조건부|실패`와 이유 목록을 `verdict.md`로 낸다. 산출물을 고쳐 쓰지 않는다.
+  - **판정은 goal·deliverables·constraints에 적힌 완료 기준으로만 낸다.** 지시문에 덧붙은 일반 코드 스타일 지침(예: "중간 변수 금지", "정규식 인라인")이나 검증자 개인 취향은 판정에 넣지 않고 `verdict.md` 끝에 "참고 의견"으로만 적는다.
+  - 기준이 모호하면 넓게 해석해 통과시키고, 해석한 내용을 이유 목록에 한 줄로 남긴다.
 - 끝나면 지휘 봇에게 한 메시지로: 결과 요약 3줄, 산출물 경로, 막힌 점.
 - git 작업 브랜치명은 job id. 머지·배포·삭제·외부 발송·결제는 하지 않는다.
 - sshd·tailscale·다른 봇 프로세스를 재시작하지 않는다. 브라우저 작업은 한 번에 하나.
@@ -82,7 +84,7 @@ job은 Claude Code가 보낸 자동 작업이고 오너는 화면 앞에 없다.
 ## 6. 닫기 (지휘 봇)
 
 모든 단계가 done·failed·blocked_approval로 확정된 뒤에만:
-1. `/workspace/mailbox/out/<id>/MANIFEST.json`: `[{"path":..., "bot":..., "sha256":..., "kind":"file|pr|url"}]` — 각 파일을 쓴 봇을 `bot`에 적는다.
+1. `/workspace/mailbox/out/<id>/MANIFEST.json`: **JSON 배열** `[{"path":..., "bot":..., "sha256":..., "kind":"file|pr|url"}]` — path는 out 폴더 기준 상대경로, 각 파일을 쓴 봇을 `bot`에 적는다. 객체로 감싸지 않는다.
 2. `SUMMARY.md`가 out 폴더 맨 위에 있는지 확인한다(없으면 품앗이-정리 또는 품앗이-검증에게 재지시한다. 직접 쓰지 않는다).
 3. `status.json`의 `status`·`done_at`·`job_done_line`을 채운다.
 4. Claude에게 보내는 마지막 메시지의 맨 끝 줄에 정확히:
@@ -92,3 +94,25 @@ JOB_DONE <id> status=ok|partial|failed steps=<완료>/<전체> out=/workspace/ma
 ```
 
 status 판단: 모든 단계 done이고 검증이 `통과`면 ok, 검증이 `조건부`이거나 일부 단계가 failed·blocked_approval이면 partial, 검증이 `실패`이거나 핵심 단계가 failed면 failed. 이 줄은 진행 중 보고에는 절대 쓰지 않는다.
+
+## 7. 회수 요청 (지휘 봇)
+
+Claude Code가 `JOB <id> 회수 요청`을 보내면 새 작업이 아니다. 위임하지 않고 지휘 봇이 셸로 직접, 요청에 적힌 형식대로 MANIFEST.json과 파일들을 base64로 붙여 보내고 `FETCH_DONE <id>` 줄로 닫는다. 셸 출력은 손으로 다시 쓰지 않는다. Claude Code가 해시로 대조하므로 한 글자만 달라도 실패한다.
+
+## 8. Grok Bot에서 들어오는 job (`origin: grokbot`)
+
+오너가 Grok Bot 앱에서 다단계 일을 맡기면, 라우터 봇(Grok Bot)이 같은 형식으로 품앗이에 job을 보낼 수 있다.
+
+```
+JOB gbx-<yyyymmddhhmm>-<4자리 16진수>
+origin: grokbot
+reply_to: <요청한 봇 이름>
+goal: ...
+(나머지 필드는 §1과 같다)
+```
+
+- 절차(§0~§6)는 똑같다. 산출물 폴더도 `/workspace/mailbox/out/<id>/`다.
+- 다른 점은 받는 쪽뿐이다: 진행 보고·질문·최종 보고를 `reply_to` 봇에게 SendToAgent로 보낸다. 마지막 줄 `JOB_DONE` 형식은 그대로 쓴다.
+- 오너가 화면 앞에 있을 수 있으므로, 사람만 정할 수 있는 결정은 위젯 대신 `reply_to` 봇에게 한 줄 질문으로 넘긴다(그 봇이 오너에게 묻는다). 되돌릴 수 있는 결정은 여전히 기본값으로 진행한다.
+- `origin`이 없으면 Claude Code에서 온 job으로 본다.
+

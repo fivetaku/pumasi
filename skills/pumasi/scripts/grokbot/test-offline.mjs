@@ -50,5 +50,28 @@ for (const args of [["raw", "listAgents"], ["delete", "x"], ["team", "apply"], [
 }
 console.log("PASS  관리 명령 --admin 게이트 4종");
 
+// 회수 검증: MANIFEST 두 형식(배열·{files}) 모두 해시를 대조하고, 검증된 파일이 0개면 실패여야 한다(2026-10-14 실측 구멍).
+{
+  const { mkdtempSync, writeFileSync: wf, mkdirSync: md } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join: pj } = await import("node:path");
+  const { createHash } = await import("node:crypto");
+  const vsrc = slice("function walk", "// ── 대화 회수");
+  const verifyLocal = new Function("readdirSync", "lstatSync", "readFileSync", "existsSync", "join", "crypto", "BridgeError", "outDir",
+    vsrc + "; return verifyLocal;")(
+    (await import("node:fs")).readdirSync, (await import("node:fs")).lstatSync, (await import("node:fs")).readFileSync, (await import("node:fs")).existsSync,
+    pj, await import("node:crypto"), Error, (j) => `/workspace/mailbox/out/${j}/`);
+  const mk = (manifest, files) => { const d = mkdtempSync(pj(tmpdir(), "gbv-")); for (const [k, v] of Object.entries(files)) { md(pj(d, k, ".."), { recursive: true }); wf(pj(d, k), v); } wf(pj(d, "MANIFEST.json"), JSON.stringify(manifest)); return d; };
+  const h = (t) => createHash("sha256").update(t).digest("hex");
+  const files = { "SUMMARY.md": "요약", "src/a.mjs": "x" };
+  const arr = [{ path: "SUMMARY.md", sha256: h("요약") }, { path: "src/a.mjs", sha256: h("x") }];
+  assert.equal(verifyLocal(mk(arr, files), id).ok, true, "배열 MANIFEST 통과");
+  assert.equal(verifyLocal(mk({ files: arr }, files), id).ok, true, "{files} MANIFEST 통과");
+  assert.equal(verifyLocal(mk({ files: [{ path: "src/a.mjs", sha256: "0" }] }, files), id).ok, false, "해시 불일치 실패");
+  assert.equal(verifyLocal(mk({ job: id }, files), id).ok, false, "검증 대상 0개면 실패");
+  assert.equal(verifyLocal(mk([{ path: "../x", sha256: "0" }], files), id).ok, false, "경로 탈출 거부");
+  console.log("PASS  회수 검증: MANIFEST 두 형식·해시 불일치·0개·경로 탈출");
+}
+
 if (fail) { console.log(`\n${fail}건 실패`); process.exit(1); }
 console.log("\n전부 통과");
