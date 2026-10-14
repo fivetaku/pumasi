@@ -13,7 +13,7 @@ description: Host-controlled parallel coding. Claude Code hosts default to Codex
 품앗이를 부른 현재 세션이 항상 **호스트(기획·감독·승인·최종 검증 담당)**다. Claude Code에서 부르면 기본 워커는 Codex이고, OMO·Codex·기타 환경에서 부르면 기본 워커는 Claude Code다. Claude 워커에게 전체 오케스트레이션을 다시 맡기거나 품앗이를 재귀 실행하지 않는다.
 
 - 시작 시 `--host claude-code|omo|codex|other`를 지정한다. 우선순위는 CLI > `PUMASI_HOST` 환경변수 > 설정의 `pumasi.host` > `claude-code`(기존 동작)다.
-- 워커 명령 우선순위는 task `command` > 명시한 `defaults.command` > 호스트별 기본값이다. 호스트에 따라 전환하려면 기존 설정의 명시적 Codex `defaults.command`를 생략한다. 명시한 혼합 워커를 자동으로 덮어쓰지 않는다.
+- 워커 명령 우선순위는 task `command` > 명시한 `defaults.command` > 호스트별 기본값이다. 호스트에 따라 전환하려면 기존 설정의 명시적 Codex `defaults.command`를 생략한다. task별로 명시한 워커를 자동으로 덮어쓰지 않는다.
 - Claude 기본 명령은 `claude --print --permission-mode acceptEdits`다. JSON 출력·스키마·stdin 전달은 워커가 관리한다. 모델·허용 도구·권한은 명시적 task/default 명령 옵션으로 조정하며 호스트 인증을 복사하지 않는다.
 - 비-Claude 호스트는 이 파일 위치에서 플러그인 루트를 구해 기존 `${CLAUDE_PLUGIN_ROOT}` 자리의 경로로 사용한다. Bash 래퍼가 없어도 `node <plugin>/skills/pumasi/scripts/pumasi-job.js`로 실행할 수 있다.
 - AskUserQuestion이 없는 호스트에서는 그 호스트의 질문 도구를 쓰고, 없으면 일반 대화로 선택을 받는다. 이미 명시된 호스트·워커는 다시 묻지 않는다.
@@ -157,12 +157,12 @@ Claude가 직접 코딩  Claude가 시그니처+요구사항 작성
 - options (4개):
   1. **호스트 기본 워커 (권장)** — Claude Code 호스트면 Codex, OMO 등 다른 호스트면 Claude Code. 로컬 레포 코드 작업, 구조화 보고(report.json) 지원
   2. **Grok Bot 팀** — Grok Bot 앱의 클라우드 봇 팀(지휘·리서치·브라우저·코딩·검증·정리)에 job으로 맡긴다. 웹 조사·출처 확인·문서·브라우저 작업용이며 로컬 레포를 직접 고치지 않는다. 처음 고르면 Grok Bot 계정에 품앗이 팀 봇 6개·그룹 1개·스킬 1개를 만든다(삭제 없음)
-  3. **혼합 (Codex + Grok Bot 등)** — 태스크 성격별로 나눠 배정: 코드 모듈은 Codex, 조사·문서·브라우저는 Grok Bot. 배정안은 Claude가 제안 후 config에 task별 `command:`로 반영. 같은 과제를 둘에게 중복으로 시키지 않는다
-  4. **다른 CLI (Grok CLI / Cursor / agy / gjc)** — Grok Build CLI(grok-4.6), Cursor Ultra의 cursor-agent(Composer·Codex·**Claude Opus/Fable까지**), 디자인·UI는 Antigravity(agy), 멀티모델은 gajae-code(gjc). 고른 뒤 어느 CLI인지 한 번 더 묻는다
+  3. **Antigravity (agy)** — Google Antigravity CLI(Gemini 계열). 디자인·UI·프론트엔드 화면 작업에 강하다. 로컬 레포를 직접 고친다. report.json 없이 output.txt로 통합
+  4. **다른 CLI (Grok CLI / Cursor / gjc)** — Grok Build CLI(grok-4.6), Cursor Ultra의 cursor-agent(Composer·Codex·**Claude Opus/Fable까지**), 멀티모델은 gajae-code(gjc). 고른 뒤 어느 CLI인지 한 번 더 묻는다
 
-선택 결과는 Phase 2에서 `.pumasi/pumasi.config.yaml`의 `defaults.command:`(혼합이면 task별 `command:`)에 반영한다. 각 워커의 정확한 command 문자열은 아래 **"외주 워커 교체"** 절의 것을 그대로 쓴다.
+선택 결과는 Phase 2에서 `.pumasi/pumasi.config.yaml`의 `defaults.command:`에 반영한다. 사용자가 task마다 다른 워커를 명시했을 때만 task별 `command:`를 쓴다. 각 워커의 정확한 command 문자열은 아래 **"외주 워커 교체"** 절의 것을 그대로 쓴다.
 
-**Grok Bot 팀을 골랐다면(2·3번) 선택 직후 준비 1회** — 아래 "Grok Bot 팀" 절의 준비 절차를 그대로 실행한다. `status`가 앱·세션 없음이면 "Grok Bot 앱에 로그인해 주세요"로 알리고 그 task만 다른 워커로 돌린다.
+**Grok Bot 팀을 골랐다면(2번) 선택 직후 준비 1회** — 아래 "Grok Bot 팀" 절의 준비 절차를 그대로 실행한다. `status`가 앱·세션 없음이면 "Grok Bot 앱에 로그인해 주세요"로 알리고 그 task만 다른 워커로 돌린다.
 
 **선택 직후 설치 확인 1회**: `command -v <cli>` (grok은 실패 시 `$HOME/.grok/bin/grok` 폴백). 미설치·미인증이면 그대로 알리고 중단하거나 사용자에게 다른 워커를 선택받는다. 명시한 Claude 워커를 Codex로 몰래 바꾸지 않는다.
 
@@ -327,7 +327,7 @@ Round 2: Round 1 결과 사용하는 태스크 (2개 병렬)
 Round 3: 최종 통합 (Claude 직접)
 ```
 
-**단계형 실행 (결과를 보고 다음 라운드를 정한다)** — 조사→구현처럼 앞 결과가 뒤 지시를 바꾸는 작업, 특히 혼합(Grok Bot 조사 + Codex 구현)에 기본으로 쓴다.
+**단계형 실행 (결과를 보고 다음 라운드를 정한다)** — 조사→구현처럼 앞 결과가 뒤 지시를 바꾸는 작업에 기본으로 쓴다(예: 라운드 1 Grok Bot 조사 → 라운드 2 Codex 구현).
 1. `start`는 라운드 1만 띄운다. 라운드 2 이후 task는 config에 미리 적어 두되 지시는 "앞 라운드 결과와 호스트 결정을 따른다" 수준으로 둔다.
 2. 라운드 1이 끝나면 호스트가 결과(`results --compact`, 회수된 `SUMMARY.md`)와 게이트를 읽고 **결론을 정한다** — 채택할 규칙·버릴 가정·남은 미확인.
 3. `pumasi.sh start-round --round 2 --note "<결론 3~6줄>" <JOB_DIR>`로 다음 라운드를 띄운다. 워커 프롬프트에는 앞 라운드 결과(보고서 요약 또는 output 앞 2000자)와 `## 호스트 결정` 블록이 함께 들어가고, 결정문은 `job.json`의 `roundNotes`에 남는다.
@@ -471,7 +471,7 @@ config (task별):
 - 개인 비서 봇과 같은 VM을 쓰므로 품앗이 팀은 공개 웹 조사·정리 위주로 쓴다. 개인 계정 로그인 작업은 승인 카드 대상이다.
 - 회귀 확인: `node skills/pumasi/scripts/grokbot/test-offline.mjs`.
 
-**task별 혼합**: 모듈마다 다른 `command:`를 지정하면 codex / grok / gjc / agy / grokbot에 병렬로 나눠 외주할 수 있다. 전형적인 혼합은 코드 모듈 = Codex, 조사·문서 = Grok Bot이다.
+**task별 워커 지정**: 워커 선택지에는 없지만, 사용자가 원하면 task마다 다른 `command:`를 지정해 codex / grok / gjc / agy / grokbot에 나눠 맡길 수 있다.
 
 > ⚠️ **같은 과제를 여러 워커에게 시키는 "토너먼트"는 품앗이의 기능이 아니다.** 품앗이의 본질은 *분할*이고
 > 토너먼트는 *중복*이라 "단일 파일 작업 = 병렬 이점 없음" 규칙과 충돌한다. 경쟁·채점·승자 채택이 필요하면
