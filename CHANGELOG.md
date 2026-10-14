@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.20.1 (2026-10-14)
+- **gptaku-core 라우팅 조정.** 실제 대화에서 잘못 지목된 사례에 맞춰 `routing.json`의 키워드·제외어를 고쳤다. gptaku-core 0.1.1과 함께 적용된다.
+
 ## 1.20.0 (2026-10-14)
 - **워커 선택지 정리.** "혼합(Codex + Grok Bot)" 선택지를 없애고 "Antigravity(agy)"를 독립 선택지로 올렸다. 선택지는 호스트 기본(Codex) / Grok Bot 팀 / Antigravity(agy) / 다른 CLI(Grok CLI·Cursor·gjc). task마다 다른 워커를 쓰는 기능 자체는 남아 있고, 사용자가 명시할 때만 쓴다. 단계형 실행 예시도 "라운드 1 Grok Bot 조사 → 라운드 2 Codex 구현"으로 바꿨다.
 
