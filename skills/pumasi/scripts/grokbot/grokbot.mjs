@@ -9,7 +9,7 @@
 
 import crypto from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve as resolvePath } from "node:path";
 
@@ -337,7 +337,8 @@ function lockBot(botId) {
       if (e.code !== "EEXIST") throw e;
       let age = 0;
       try { age = Date.now() - lstatSync(p).mtimeMs; } catch { continue; }
-      if (age > LOCK_STALE_MS) { try { rmSync(p, { recursive: true, force: true }); } catch {} continue; }
+      // 오래된 잠금은 rename 으로 먼저 옮긴다 — 두 프로세스가 동시에 되찾아도 rename 에 성공한 하나만 지운다.
+      if (age > LOCK_STALE_MS) { try { const t = `${p}.stale.${process.pid}`; renameSync(p, t); rmSync(t, { recursive: true, force: true }); } catch {} continue; }
       return null;
     }
   }
@@ -368,7 +369,8 @@ async function claimFreeBot(s, ref, { force = false, claim }) {
     const unlock = lockBot(bot.id);
     if (!unlock) { busy.push({ bot: laneName(bot.base, bot.lane), why: "다른 세션이 선택 중" }); continue; }
     try {
-      const open = listJobs().find((j) => j.botId === bot.id && OPEN_STATES.has(j.state));
+      // remote_completed 는 대화 회수(fetchViaChat)가 진행 중일 수 있는 상태라 점유로 본다(회수 결과가 붙으면 풀린다).
+      const open = listJobs().find((j) => j.botId === bot.id && (OPEN_STATES.has(j.state) || (j.state === "remote_completed" && !j.fetch)));
       if (open && !force) { busy.push({ bot: laneName(bot.base, bot.lane), why: `job ${open.jobId} (${open.state})` }); continue; }
       if (!force) {
         const st = await botState(s, bot).catch(() => ({ busy: false }));
@@ -668,7 +670,7 @@ async function doctor() {
   const lead = leads[0]?.raw;
   if (lead) {
     const lanesSeen = new Set(leads.map((a) => a.lane));
-    add("품앗이 레인", leads.length > lanesSeen.size ? "warn" : "ok", `레인 ${[...lanesSeen].sort().map((l) => `#${l}`).join(" ")}${leads.length > lanesSeen.size ? ` — 중복 봇 ${leads.length - lanesSeen.size}개(grokbot team plan 으로 확인, team apply --prune --admin 으로 정리)` : ""}`);
+    add("품앗이 레인", leads.length > lanesSeen.size ? "warn" : "ok", `레인 ${[...lanesSeen].sort((a, b) => a - b).map((l) => `#${l}`).join(" ")}${leads.length > lanesSeen.size ? ` — 중복 봇 ${leads.length - lanesSeen.size}개(grokbot team plan 으로 확인, team apply --prune --admin 으로 정리)` : ""}`);
     await probe("봇 상태 필드", async () => lead, (a) => (["isRunningTurn", "isRunning", "awaitingUserResponse"].every((k) => k in a) ? true : "isRunningTurn 등 필드가 없다 — 완료 판정이 깨진다"));
     await probe("promptAcceptanceStatus", () => call(s, "promptAcceptanceStatus", { accountSlot: "host", agentId: lead.id, clientNonce: "doctor-probe" }), (r) => (r?.outcome === "not-found" ? true : `예상 밖 응답: ${JSON.stringify(r).slice(0, 80)}`));
     await probe("getAgentTranscriptTail", () => call(s, "getAgentTranscriptTail", { id: lead.id, limit: 1 }), (r) => (Array.isArray(r?.entries) ? true : "entries 배열이 없다"));
@@ -925,7 +927,9 @@ async function main() {
     }
     case "fetch": {
       const dest = typeof opt.dest === "string" ? opt.dest : undefined;
-      const r = opt.chat || !bridgeConfig().ssh ? await fetchViaChat(s, pos[0], { dest }) : await fetchJob(s, pos[0], { dest });
+      // 대화 회수는 그 job 의 지휘 봇(레인)에게 보낸다 — 기본 "품앗이" 는 레인 1 이라 다른 세션 대화에 섞인다.
+      const botRef = existsSync(jobPath(pos[0])) ? loadJob(pos[0]).botId : undefined;
+      const r = opt.chat || !bridgeConfig().ssh ? await fetchViaChat(s, pos[0], { dest, ...(botRef ? { botRef } : {}) }) : await fetchJob(s, pos[0], { dest });
       if (existsSync(jobPath(pos[0]))) {
         const rec = loadJob(pos[0]);
         if (rec.state === "remote_completed" || rec.state === "fetch_invalid") rec.state = r.ok ? "succeeded" : "fetch_invalid";
