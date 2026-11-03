@@ -142,15 +142,32 @@ async function call(session, method, body = {}) {
   }
 }
 
+// 이름 규칙 — 앱(0.78.x)은 봇이 첫 인사를 한 직후 레코드를 name="이름 · 타이틀", title="" 로 다시 쓴다(2026-11-03 실측).
+// 정확 일치로 비교하면 기존 봇을 영원히 못 찾아 apply 마다 새로 만들었다. 이름 비교는 반드시 splitName 의 base·lane 으로 한다.
+// 레인: 같은 팀을 여러 벌 두어 세션이 섞이지 않게 한다. 레인 1 은 원래 이름, 레인 k≥2 는 "이름#k"(예: 품앗이#2, 품앗이-리서치#2).
+const LANE_RE = /^(.*?)#(\d+)$/;
+function splitName(raw) {
+  const [head, ...rest] = String(raw ?? "").split(" · ");
+  const m = LANE_RE.exec(head.trim());
+  return { base: (m ? m[1] : head).trim(), lane: m ? Number(m[2]) : 1, titleFromName: rest.join(" · ").trim() };
+}
+function laneName(base, lane) {
+  return lane > 1 ? `${base}#${lane}` : base;
+}
+
 function asBot(a) {
   const memberIds = a.memberIds || a.memberAgentIds || [];
+  const sn = splitName(a.name);
   return {
     id: a.id || a.agentId,
     name: a.name || "",
-    title: a.title || "",
+    base: sn.base,
+    lane: sn.lane,
+    title: a.title || sn.titleFromName,
     description: a.description || "",
     isGroup: a.isGroup === true || (a.isGroup == null && memberIds.length > 0),
     memberIds,
+    createdAt: Number(a.createdAt) || 0,
   };
 }
 
@@ -163,14 +180,18 @@ async function listBots(s) {
   return (await listRaw(s)).map(asBot).filter((b) => b.id);
 }
 
-async function resolve(s, ref) {
+// id · 레인 이름(품앗이, 품앗이#2) · 앱이 합친 표시 이름(품앗이 · 작업 지휘) · 타이틀 순으로 찾는다.
+// 같은 이름이 여럿이면(중복 생성 사고) 가장 오래된 봇을 쓴다 — 장부의 옛 job 이 가리키는 봇이 그것이다.
+async function resolve(s, ref, { quiet = false } = {}) {
   const bots = await listBots(s);
   const needle = String(ref).trim().toLowerCase();
   const byId = bots.find((b) => b.id.toLowerCase() === needle);
   if (byId) return byId;
-  const hits = bots.filter((b) => b.name.toLowerCase() === needle || b.title.toLowerCase() === needle);
-  if (hits.length === 1) return hits[0];
-  throw new BridgeError(hits.length ? `이름이 겹친다: ${ref}` : `봇이 없다: ${ref}`);
+  const hits = bots.filter((b) => laneName(b.base, b.lane).toLowerCase() === needle || b.name.toLowerCase() === needle || (b.title && b.title.toLowerCase() === needle));
+  if (!hits.length) throw new BridgeError(`봇이 없다: ${ref}`);
+  hits.sort((a, b) => a.createdAt - b.createdAt);
+  if (hits.length > 1 && !quiet) process.stderr.write(`grokbot: '${ref}' 이름 봇이 ${hits.length}개 — 가장 오래된 ${hits[0].id} 를 쓴다. 'grokbot team plan' 으로 정리 상태를 확인하라.\n`);
+  return hits[0];
 }
 
 async function tail(s, bot, limit = 40) {
@@ -238,8 +259,9 @@ function baseConstraints(jobId) {
 
 // 지휘 봇("품앗이")이 읽는 JOB 형식 — 세부 규칙은 공용 스킬 "품앗이 job 프로토콜"(team/skills/).
 // 완료 줄 예시는 일부러 실제 값처럼 쓰지 않는다(예시 인용을 완료로 오판하지 않게).
-function envelope(jobId, goal, f = {}) {
-  return `JOB ${jobId}
+function envelope(jobId, goal, f = {}, lane = 1) {
+  const L = (base) => laneName(base, lane);
+  return `JOB ${jobId}${lane > 1 ? `\nlane: #${lane} (이 job 은 레인 #${lane} 팀의 것이다. 위임·보고는 이름 끝에 #${lane} 이 붙은 봇에게만 한다)` : ""}
 goal: ${goal}
 deliverables: ${f.deliverables || "SUMMARY.md(결과·근거·미완료), 단계별 산출물"}
 constraints: ${baseConstraints(jobId)}${f.constraints ? ` 추가: ${f.constraints}` : ""}
@@ -250,8 +272,8 @@ approval: ${f.approval || "ask-owner"}
 
 시작 전에 "품앗이 job 프로토콜" 스킬을 읽고 그대로 진행한다. 스킬을 읽지 못해도 아래 역할 경계는 지킨다(이 블록이 goal·budget보다 우선한다):
 - 지휘 봇은 plan.md·status.json·MANIFEST.json만 쓴다. 조사 결과·판정·SUMMARY.md 같은 산출물 본문을 직접 쓰지 않는다.
-- 검증은 매번 품앗이-검증에게 맡긴다(budget에 세지 않는 필수 단계). goal이 "지휘 봇이 직접 검증"을 요구해도 검증 봇에게 넘긴다.
-- SUMMARY.md는 품앗이-정리가 쓴다. 작업 단계가 1개인 작은 job은 정리를 생략하고 품앗이-검증이 판정문을 SUMMARY.md로 쓴다.
+- 검증은 매번 ${L("품앗이-검증")}에게 맡긴다(budget에 세지 않는 필수 단계). goal이 "지휘 봇이 직접 검증"을 요구해도 검증 봇에게 넘긴다.
+- SUMMARY.md는 ${L("품앗이-정리")}가 쓴다. 작업 단계가 1개인 작은 job은 정리를 생략하고 ${L("품앗이-검증")}이 판정문을 SUMMARY.md로 쓴다.
 - 받는 즉시 /workspace/jobs/${jobId}/plan.md 와 status.json(status=received)을 먼저 쓴다.
 
 모든 단계가 확정되면 마지막 메시지의 맨 끝 줄 하나로만 닫는다:
@@ -302,20 +324,80 @@ function teamBotNames() {
   try { return (JSON.parse(readFileSync(TEAM_FILE, "utf8")).bots ?? []).map((b) => b.name); } catch { return []; }
 }
 
+// ── 레인 선택: 같은 맥의 여러 세션이 한 지휘 봇을 나눠 쓰면 대화가 섞인다. 장부(열린 job)+봇 상태로 빈 레인을 고르고,
+//    고르는 순간은 봇별 잠금 디렉터리(mkdir 원자성)로 보호한다. 잠금은 선택·장부 기록 동안만 잡는다. ──
+const LOCKS_DIR = join(STATE_DIR, "locks");
+const LOCK_STALE_MS = 120 * 1000;
+function lockBot(botId) {
+  const p = join(LOCKS_DIR, botId);
+  mkdirSync(LOCKS_DIR, { recursive: true, mode: 0o700 });
+  for (let i = 0; i < 2; i++) {
+    try { mkdirSync(p); return () => { try { rmSync(p, { recursive: true, force: true }); } catch {} }; }
+    catch (e) {
+      if (e.code !== "EEXIST") throw e;
+      let age = 0;
+      try { age = Date.now() - lstatSync(p).mtimeMs; } catch { continue; }
+      if (age > LOCK_STALE_MS) { try { rmSync(p, { recursive: true, force: true }); } catch {} continue; }
+      return null;
+    }
+  }
+  return null;
+}
+
+// ref 가 기본 이름(품앗이)이면 품앗이·품앗이#2·… 전부가 후보. 정확한 레인 이름(품앗이#2)·id 면 그 봇만.
+async function lanePool(s, ref) {
+  const bots = (await listBots(s)).filter((b) => !b.isGroup);
+  const needle = String(ref).trim();
+  const byId = bots.find((b) => b.id.toLowerCase() === needle.toLowerCase());
+  if (byId) return [byId];
+  const want = splitName(needle);
+  const explicitLane = LANE_RE.test(needle);
+  const pool = bots.filter((b) => b.base.toLowerCase() === want.base.toLowerCase() && (!explicitLane || b.lane === want.lane));
+  if (!pool.length) return [await resolve(s, ref)];
+  // 레인마다 가장 오래된 봇 하나(중복 생성된 여분은 제외)
+  const perLane = new Map();
+  for (const b of pool.sort((a, c) => a.createdAt - c.createdAt)) if (!perLane.has(b.lane)) perLane.set(b.lane, b);
+  return [...perLane.values()].sort((a, c) => a.lane - c.lane);
+}
+
+// 빈 레인을 하나 잡아 claim(bot) 을 잠금 안에서 실행한다. 못 잡으면 { bot: null, busy: [...] }.
+async function claimFreeBot(s, ref, { force = false, claim }) {
+  const pool = await lanePool(s, ref);
+  const busy = [];
+  for (const bot of pool) {
+    const unlock = lockBot(bot.id);
+    if (!unlock) { busy.push({ bot: laneName(bot.base, bot.lane), why: "다른 세션이 선택 중" }); continue; }
+    try {
+      const open = listJobs().find((j) => j.botId === bot.id && OPEN_STATES.has(j.state));
+      if (open && !force) { busy.push({ bot: laneName(bot.base, bot.lane), why: `job ${open.jobId} (${open.state})` }); continue; }
+      if (!force) {
+        const st = await botState(s, bot).catch(() => ({ busy: false }));
+        if (st.busy) { busy.push({ bot: laneName(bot.base, bot.lane), why: "봇이 턴 실행 중(장부 밖 작업)" }); continue; }
+      }
+      return { bot, rec: claim(bot), pool, busy };
+    } finally { unlock(); }
+  }
+  return { bot: null, pool, busy };
+}
+
 async function start(s, ref, goal, { fields = {}, force = false, queue = false, queueSec = 3600 } = {}) {
-  const bot = await resolve(s, ref);
-  // 같은 지휘 봇에는 한 번에 job 하나만(대화가 하나라 출력이 섞인다)
-  // queue=true 면 거절하지 않고 앞 job이 닫힐 때까지 기다린다(품앗이가 같은 라운드에 Grok Bot task를 여럿 낼 때).
+  // 같은 지휘 봇에는 한 번에 job 하나만(대화가 하나라 출력이 섞인다). 레인이 여럿이면 빈 레인을 잡는다.
+  // queue=true 면 거절하지 않고 레인이 비길 기다린다(품앗이가 같은 라운드에 Grok Bot task를 여럿 낼 때).
   const queueDeadline = Date.now() + queueSec * 1000;
+  let picked;
   for (;;) {
-    const busy = listJobs().find((j) => j.botId === bot.id && OPEN_STATES.has(j.state));
-    if (!busy || force) break;
-    if (!queue || Date.now() > queueDeadline) throw new BridgeError(`${bot.name}에 진행 중인 job이 있다: ${busy.jobId} (${busy.state}). grokbot watch|cancel ${busy.jobId}`);
+    picked = await claimFreeBot(s, ref, {
+      force,
+      claim: (bot) => saveJob({ jobId: newJobId(), bot: bot.name, botId: bot.id, lane: bot.lane, clientNonce: crypto.randomUUID(), state: "sending", createdAt: new Date().toISOString(), goal, fields }),
+    });
+    if (picked.bot) break;
+    const why = picked.busy.map((b) => `${b.bot}: ${b.why}`).join(", ");
+    if (!queue || Date.now() > queueDeadline) throw new BridgeError(`${ref} 레인 ${picked.pool.length}개가 모두 진행 중이다 — ${why}. grokbot watch|cancel <job> 또는 team.json 의 lanes 를 늘려라.`);
     await new Promise((r) => setTimeout(r, 10000));
   }
-  const rec = saveJob({ jobId: newJobId(), bot: bot.name, botId: bot.id, clientNonce: crypto.randomUUID(), state: "sending", createdAt: new Date().toISOString(), goal, fields });
+  const { bot, rec } = picked;
   try {
-    await call(s, "sendPrompt", { agentId: bot.id, prompt: envelope(rec.jobId, goal, fields), clientNonce: rec.clientNonce });
+    await call(s, "sendPrompt", { agentId: bot.id, prompt: envelope(rec.jobId, goal, fields, bot.lane), clientNonce: rec.clientNonce });
   } catch (e) {
     // 응답을 못 받았다고 다시 보내지 않는다. 수락 여부는 watch가 clientNonce로 확인한다.
     rec.sendError = String(e.message || e);
@@ -384,8 +466,10 @@ async function watch(s, rec, { timeoutSec = 900, intervalSec = 5 } = {}) {
 // 취소: 지휘 봇과 팀 봇 전부에 중단을 보내고, 실제로 멈췄는지 확인한다.
 async function cancel(s, rec) {
   const raw = await listRaw(s);
-  const names = new Set([rec.bot, ...teamBotNames()]);
-  const targets = raw.filter((a) => !a.isGroup && names.has(a.name));
+  // 이 job 의 레인에 속한 팀 봇만 멈춘다 — 다른 레인은 다른 세션의 job 이 돌고 있을 수 있다.
+  const lane = rec.lane ?? splitName(rec.bot).lane;
+  const bases = new Set([splitName(rec.bot).base, ...teamBotNames()]);
+  const targets = raw.filter((a) => !a.isGroup && (a.id === rec.botId || (bases.has(splitName(a.name).base) && splitName(a.name).lane === lane)));
   const results = [];
   for (const a of targets) {
     const bot = { id: a.id, name: a.name };
@@ -580,8 +664,11 @@ async function doctor() {
   };
   let team = [];
   await probe("listAgents", async () => (team = await listRaw(s)), (r) => (Array.isArray(r) && r.every((a) => "id" in a && "name" in a) ? true : "응답 모양이 다르다"));
-  const lead = team.find((a) => a.name === "품앗이");
+  const leads = team.filter((a) => !a.isGroup && splitName(a.name).base === "품앗이").map((raw) => ({ raw, ...asBot(raw) })).sort((a, b) => a.createdAt - b.createdAt);
+  const lead = leads[0]?.raw;
   if (lead) {
+    const lanesSeen = new Set(leads.map((a) => a.lane));
+    add("품앗이 레인", leads.length > lanesSeen.size ? "warn" : "ok", `레인 ${[...lanesSeen].sort().map((l) => `#${l}`).join(" ")}${leads.length > lanesSeen.size ? ` — 중복 봇 ${leads.length - lanesSeen.size}개(grokbot team plan 으로 확인, team apply --prune --admin 으로 정리)` : ""}`);
     await probe("봇 상태 필드", async () => lead, (a) => (["isRunningTurn", "isRunning", "awaitingUserResponse"].every((k) => k in a) ? true : "isRunningTurn 등 필드가 없다 — 완료 판정이 깨진다"));
     await probe("promptAcceptanceStatus", () => call(s, "promptAcceptanceStatus", { accountSlot: "host", agentId: lead.id, clientNonce: "doctor-probe" }), (r) => (r?.outcome === "not-found" ? true : `예상 밖 응답: ${JSON.stringify(r).slice(0, 80)}`));
     await probe("getAgentTranscriptTail", () => call(s, "getAgentTranscriptTail", { id: lead.id, limit: 1 }), (r) => (Array.isArray(r?.entries) ? true : "entries 배열이 없다"));
@@ -606,39 +693,85 @@ function skillName(markdown) {
   return n ? n[1].trim() : null;
 }
 
-async function teamSync(s, file, { apply = false } = {}) {
+// 레인 k 의 봇 선언: 이름에 #k 를 붙이고, 설명 속 팀 봇 이름(하이픈 붙은 역할 봇)도 같은 레인 이름으로 바꾼다.
+function laneBots(team, lane) {
+  const names = (team.bots ?? []).map((b) => b.name).filter((n) => n.includes("-")).sort((a, b) => b.length - a.length);
+  const rewrite = (text) => {
+    if (lane === 1 || !text) return text || "";
+    let t = text;
+    names.forEach((n, i) => { t = t.split(n).join(`\u0000${i}\u0000`); });
+    names.forEach((n, i) => { t = t.split(`\u0000${i}\u0000`).join(laneName(n, lane)); });
+    return t;
+  };
+  return (team.bots ?? []).map((b) => ({
+    name: laneName(b.name, lane),
+    title: b.title || "",
+    description: rewrite(b.description) + (lane > 1 ? ` [레인 #${lane}: 같은 팀이 여러 벌 있다. 이름 끝에 #${lane} 이 붙은 봇하고만 일하고, 다른 레인의 봇·job 에는 답하지 않는다.]` : ""),
+    lane,
+  }));
+}
+function laneGroups(team, lane) {
+  return (team.groups ?? []).map((g) => ({ name: laneName(g.name, lane), description: g.description || "", members: (g.members ?? []).map((n) => laneName(n, lane)), lane }));
+}
+
+// 선언 이름(품앗이#2)과 서버 봇을 base+lane 으로 맞춘다. 중복이면 가장 오래된 것이 정본이고 나머지는 extra.
+function matchByLaneName(raw, name, { group = false } = {}) {
+  const want = splitName(name);
+  const hits = raw.map(asBot).filter((b) => b.isGroup === group && b.base === want.base && b.lane === want.lane).sort((a, b) => a.createdAt - b.createdAt);
+  return { cur: hits[0] ?? null, extra: hits.slice(1) };
+}
+
+async function teamSync(s, file, { apply = false, prune = false } = {}) {
   const team = JSON.parse(readFileSync(file, "utf8"));
   const base = dirname(resolvePath(file));
+  const lanes = Math.max(1, Number(team.lanes) || 1);
   const actions = [];
   let raw = await listRaw(s);
-  const byName = (n) => raw.filter((a) => a.name === n);
+  const prof = (b) => ({ name: b.name, title: b.title || "", description: b.description || "" });
 
-  for (const b of team.bots ?? []) {
-    const hits = byName(b.name).filter((a) => !a.isGroup);
-    if (hits.length > 1) { actions.push({ kind: "bot", name: b.name, op: "skip", reason: "같은 이름이 여러 개" }); continue; }
-    const cur = hits[0];
+  const wantBots = [];
+  for (let lane = 1; lane <= lanes; lane++) wantBots.push(...laneBots(team, lane));
+  for (const b of wantBots) {
+    const { cur, extra } = matchByLaneName(raw, b.name);
+    for (const x of extra) {
+      actions.push({ kind: "bot", name: b.name, op: prune ? "delete" : "extra", id: x.id, reason: "같은 이름의 여분(중복 생성)" });
+      if (apply && prune) await call(s, "deleteAgent", { id: x.id });
+    }
     if (!cur) {
       actions.push({ kind: "bot", name: b.name, op: "create" });
-      if (apply) await call(s, "createAgent", { name: b.name, title: b.title || "", description: b.description || "", avatarShape: "", avatarColor: "", origin: "user" });
+      if (apply) await call(s, "createAgent", { ...prof(b), avatarShape: "", avatarColor: "", origin: "user" });
     } else if ((cur.title || "") !== (b.title || "") || (cur.description || "") !== (b.description || "")) {
-      actions.push({ kind: "bot", name: b.name, op: "update" });
-      if (apply) await call(s, "updateAgent", { id: cur.id, profile: { name: b.name, title: b.title || "", description: b.description || "" } });
-    } else actions.push({ kind: "bot", name: b.name, op: "ok" });
+      // 앱이 name 을 "이름 · 타이틀" 로 합쳐 두었으면 그대로 두고 profile 만 선언값으로 되돌린다.
+      actions.push({ kind: "bot", name: b.name, op: "update", id: cur.id });
+      if (apply) await call(s, "updateAgent", { id: cur.id, profile: prof(b) });
+    } else actions.push({ kind: "bot", name: b.name, op: "ok", id: cur.id });
   }
 
   if (apply) raw = await listRaw(s);
-  for (const g of team.groups ?? []) {
-    const memberIds = (g.members ?? []).map((n) => byName(n).find((a) => !a.isGroup)?.id).filter(Boolean);
-    const missing = (g.members ?? []).length - memberIds.length;
-    const cur = byName(g.name).find((a) => a.isGroup);
+  const wantGroups = [];
+  for (let lane = 1; lane <= lanes; lane++) wantGroups.push(...laneGroups(team, lane));
+  for (const g of wantGroups) {
+    const memberIds = g.members.map((n) => matchByLaneName(raw, n).cur?.id).filter(Boolean);
+    const missing = g.members.length - memberIds.length;
+    const { cur, extra } = matchByLaneName(raw, g.name, { group: true });
+    for (const x of extra) {
+      actions.push({ kind: "group", name: g.name, op: prune ? "delete" : "extra", id: x.id, reason: "같은 이름의 여분" });
+      if (apply && prune) await call(s, "deleteAgent", { id: x.id });
+    }
     if (apply && missing) { actions.push({ kind: "group", name: g.name, op: "skip", reason: `멤버 ${missing}개를 못 찾음` }); continue; }
     if (!cur) {
       actions.push({ kind: "group", name: g.name, op: "create", members: g.members });
-      if (apply) await call(s, "createGroup", { name: g.name, description: g.description || "", memberAgentIds: memberIds });
-    } else if ([...(cur.memberIds ?? cur.memberAgentIds ?? [])].sort().join() !== [...memberIds].sort().join()) {
-      actions.push({ kind: "group", name: g.name, op: "set-members", members: g.members });
+      if (apply) await call(s, "createGroup", { name: g.name, description: g.description, memberAgentIds: memberIds });
+    } else if ([...(cur.memberIds ?? [])].sort().join() !== [...memberIds].sort().join()) {
+      actions.push({ kind: "group", name: g.name, op: "set-members", members: g.members, id: cur.id });
       if (apply) await call(s, "setGroupMembers", { id: cur.id, memberAgentIds: memberIds });
-    } else actions.push({ kind: "group", name: g.name, op: "ok" });
+    } else actions.push({ kind: "group", name: g.name, op: "ok", id: cur.id });
+  }
+
+  // 선언된 레인 수를 넘는 봇(lanes 를 줄였을 때)은 지우지 않고 알린다.
+  const declaredBases = new Set((team.bots ?? []).map((b) => b.name));
+  for (const a of raw.filter((a) => !a.isGroup).map(asBot)) {
+    if (declaredBases.has(a.base) && a.lane > lanes) actions.push({ kind: "bot", name: a.name, op: "orphan-lane", id: a.id, reason: `레인 #${a.lane} 은 선언(lanes=${lanes}) 밖` });
   }
 
   const anyBot = raw.find((a) => !a.isGroup)?.id;
@@ -669,7 +802,7 @@ async function teamSync(s, file, { apply = false } = {}) {
       }
     }
   }
-  return { file, apply, actions };
+  return { file, apply, prune, lanes, actions };
 }
 
 // run·watch 가 원격 완료를 받으면 회수 채널이 있을 때 바로 가져와 검증한다(--no-fetch 로 끔).
@@ -703,9 +836,10 @@ function parse(argv) {
 const HELP = `grokbot — Grok Bot 브릿지 (비공식 내부 API, macOS)
 
 워커 명령 (품앗이가 쓰는 것)
-  grokbot run "목표" [--bot 품앗이] [--timeout 900] [--text] [--dest 경로] [--queue [--queue-timeout 3600]] [--partial-ok]
+  grokbot run "목표" [--bot 품앗이|품앗이#2] [--timeout 900] [--text] [--dest 경로] [--queue [--queue-timeout 3600]] [--partial-ok]
         [--deliverables ..] [--constraints ..(기본 금지에 덧붙음)] [--context ..] [--deadline ..] [--budget ..] [--approval auto|ask-owner]
                      job을 장부에 기록하고 지휘 봇에 보낸 뒤 끝날 때까지 지켜본다.
+                     --bot 품앗이(기본)면 레인(품앗이·품앗이#2·…) 중 빈 것을 잡는다. 품앗이#2 처럼 쓰면 그 레인만.
   grokbot watch <jobId> [--timeout 900]   빠져나온 job에 다시 붙는다
   grokbot cancel <jobId>                  지휘 봇·팀 봇을 중단하고 멈췄는지 확인한다
   grokbot fetch <jobId> [--dest 경로] [--chat]   VM 산출물을 가져와 MANIFEST 해시 검증(기본 ./.grokbot/out/<id>/)
@@ -718,7 +852,8 @@ const HELP = `grokbot — Grok Bot 브릿지 (비공식 내부 API, macOS)
   종료 코드: 0 성공(회수·검증 통과. --partial-ok 면 partial 도 회수되면 0) · 8 회수·검증 실패 · 3 사람 응답 대기 · 4 진행 중(watch 시간 초과) · 5 partial · 6 failed · 7 취소
 
 관리 명령 (--admin 필요)
-  grokbot team plan|apply [team/team.json]   팀(봇·그룹·스킬) 선언 반영. 이름 기준 생성·갱신, 삭제 안 함
+  grokbot team plan|apply [team/team.json] [--prune]   팀(봇·그룹·스킬) 선언 반영. 이름(레인) 기준 생성·갱신. team.json 의 lanes 만큼 팀을 여러 벌 둔다
+                     같은 이름이 여럿이면 가장 오래된 봇이 정본이고 나머지는 extra 로 표시만 한다. --prune 을 붙이면 여분을 지운다
   grokbot create --name N [--title T] [--description D] | delete <bot> | send <bot> "지시"
   grokbot interrupt <bot> | raw <method> ['{json}']
 `;
@@ -813,8 +948,9 @@ async function main() {
     }
     case "team": {
       const sub = pos[0];
-      if (sub !== "plan" && sub !== "apply") throw new BridgeError("grokbot team plan|apply [파일]");
-      return out(await teamSync(s, pos[1] || TEAM_FILE, { apply: sub === "apply" }));
+      if (sub !== "plan" && sub !== "apply") throw new BridgeError("grokbot team plan|apply [파일] [--prune]");
+      if (opt.prune && sub === "apply" && !opt.admin) throw new BridgeError("--prune 은 봇을 지운다. --admin 이 필요하다.");
+      return out(await teamSync(s, pos[1] || TEAM_FILE, { apply: sub === "apply", prune: Boolean(opt.prune) }));
     }
     case "create": {
       if (!opt.name) throw new BridgeError("--name 이 필요하다.");

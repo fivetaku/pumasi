@@ -466,7 +466,8 @@ config (task별):
 - `command`의 경로는 config를 쓸 때 **절대경로로 풀어** 넣는다(yaml은 환경변수를 펼치지 않는다).
 - 프롬프트는 마지막 positional 인자로 전달된다(품앗이 규격 그대로). `--text`면 output.txt에 최종 보고 + `[grokbot] state=… job=… dest=…` 줄이 남는다.
 - 종료 코드: 0 성공(회수·해시 검증 통과) · 3 사람 응답 대기 · 4 진행 중(재접속: `node "$GB" watch <job>`) · 5 partial · 6 failed · 7 취소 · 8 회수 실패.
-- 지휘 봇은 job을 한 번에 하나만 받는다. 같은 라운드의 Grok Bot task는 `--queue`로 차례를 기다린다. 가능하면 조사 항목을 task 하나로 묶는다.
+- 지휘 봇 하나는 job을 한 번에 하나만 받는다. 팀은 `team.json`의 `lanes`(기본 3)만큼 여러 벌 있고(레인 2부터 이름 끝에 `#2`·`#3`), `run`은 장부·봇 상태로 빈 레인을 골라 잡으므로 여러 세션·같은 라운드의 Grok Bot task가 서로 섞이지 않는다. 레인이 다 차면 `--queue`로 차례를 기다린다. 특정 레인만 쓰려면 `--bot 품앗이#2`.
+- Grok Bot 앱은 봇 이름을 "이름 · 타이틀"로 합쳐 저장한다. 브릿지는 이 형태를 풀어 비교하므로 `team apply`를 반복해도 봇이 다시 생기지 않는다. 같은 이름이 여럿이면(과거 중복 생성) 가장 오래된 봇이 정본이고 나머지는 `extra`로 표시된다 — `team apply --prune --admin`으로 지운다.
 - `--timeout`은 품앗이 `settings.timeout`(기본 3600초)보다 작게 둔다.
 - `--partial-ok`(권장): 지휘 봇이 partial로 닫아도 산출물 회수·해시 검증이 통과하면 종료 코드 0으로 끝낸다. 그래야 품앗이 게이트가 건너뛰지 않고 내용을 직접 판정한다. output.txt 끝의 `[grokbot] state=partial` 줄로 partial이었다는 사실은 남는다.
 - 산출물 회수: `--dest` 폴더로 받아 MANIFEST(JSON 배열 또는 `{files:[...]}`) 해시를 맥에서 다시 계산해 대조한다. 해시로 검증된 파일이 0개면 실패다.
