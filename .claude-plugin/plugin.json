@@ -1,6 +1,6 @@
 {
   "name": "pumasi",
-  "version": "1.23.0",
+  "version": "1.23.1",
   "description": "Parallel coding orchestration + image generation (Codex · Grok · ChatGPT web, animated GIF) — /pumasi for parallel code, /pumasi:image for AI image generation",
   "author": {
     "name": "chulrolee",

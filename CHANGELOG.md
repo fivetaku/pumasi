@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.23.1 (2026-11-08)
+- **웹 레인 조기 실패 수정.** 12프레임처럼 오래 걸리는 GIF는 생성 중 턴에 "ChatGPT 답변:" 라벨만 보이고 스트리밍 표시도 없는 구간이 있어, 25초 무변화 후 "이미지 없음"(exit 5)으로 잘못 끝났다(실측 2건 — 두 대화 모두 실제로는 12프레임 GIF가 완성돼 있었다). 라벨만 있는 텍스트는 거부·무응답 판정에 쓰지 않는다. 실제 거절 문장은 그대로 잡는다. 재시험: 12프레임 GIF 45초 성공.
+
 ## 1.23.0 (2026-11-08)
 - **ChatGPT 웹 레인 추가(`/pumasi:image` 세 번째 백엔드).** 백엔드 질문에 ③ ChatGPT 웹이 생겼다. 로그인된 ChatGPT 웹 세션을 전용 브라우저(CDP 9224)로 자동화해 생성한다. 브라우저 코어는 insane-review의 `pack_and_ask.py`에서 필요한 부분(함수 52개, 636줄)만 AST로 추출해 `scripts/chatgpt_web_core.py`로 벤더링했다 — insane-review 설치 없이 동작한다. 비공개로 쓰던 insane-image-web을 품앗이 안으로 옮긴 것이다(`imagen.sh --backend web` → `scripts/webgen.py`). 구 `~/.insane-image-web/` 프로필에 로그인돼 있으면 그대로 이어 쓴다.
 - **애니메이션 GIF.** Codex 이미지 도구는 인자가 prompt·참조 이미지·투명 배경뿐이라 GIF를 만들 수 없다(codex-cli 0.167 실측: "애니메이션 GIF를 출력할 수 없습니다"로 거부). ChatGPT 웹은 GIF가 나온다(실측: 8프레임·150ms 요청 그대로). GIF·움짤 요청은 묻지 않고 웹 레인으로 보낸다. 결과 보고에 `format:`·프레임 수가 찍힌다.

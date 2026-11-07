@@ -294,6 +294,17 @@ def save(raw: bytes, out: Path, manifest: dict, manifest_path: Path, extra: dict
     return 0
 
 
+_TURN_LABELS = ("ChatGPT 답변:", "ChatGPT의 말:", "ChatGPT said:", "ChatGPT")
+
+
+def _strip_labels(text: str) -> str:
+    """턴 텍스트에서 화면 낭독용 라벨을 걷어내고 실제 답변만 남긴다."""
+    t = text or ""
+    for lab in _TURN_LABELS:
+        t = t.replace(lab, " ")
+    return " ".join(t.split()) if len(" ".join(t.split())) >= 8 else ""
+
+
 def wait_for_image(page, base_ids: set, max_wait: int) -> tuple[str, dict]:
     """새 assistant 턴이 완료되고 이미지가 안정될 때까지 폴링.
     반환: (status, state) — status ∈ ok | rejected | no_image | timeout | quota."""
@@ -327,9 +338,12 @@ def wait_for_image(page, base_ids: set, max_wait: int) -> tuple[str, dict]:
                 stable += 1
             if st.get("terminal") and st.get("imgs") and not streaming and stable >= STABLE_POLLS:
                 return "ok", st
-            # 이미지 없이 텍스트만 남고 조용해지면 거부/무응답으로 판정
+            # 이미지 없이 '실제 답변 텍스트'만 남고 끝났으면 거부/무응답으로 판정.
+            # 생성 중 턴은 "ChatGPT 답변:" 같은 라벨만 보이고 스트리밍 표시도 없을 수 있다(2026-11-08 실측:
+            # 12프레임 GIF가 이 상태로 수십 초 머문 뒤 완성) — 라벨만 있는 텍스트는 판정에 쓰지 않는다.
             idle = time.monotonic() - last_change
-            if not st.get("imgs") and not st.get("gallery") and not streaming and st.get("text") and \
+            body = _strip_labels(st.get("text", ""))
+            if not st.get("imgs") and not st.get("gallery") and not streaming and body and \
                     (st.get("terminal") or idle > TEXT_IDLE_SECS):
                 txt = st.get("text", "")
                 kind = "rejected" if any(h.lower() in txt.lower() for h in REJECT_HINTS) else "no_image"
