@@ -2,7 +2,7 @@
   "routes": [
     {
       "skill": "pumasi:image",
-      "when": "이미지·그림·썸네일·로고·포스터·배너·일러스트·아이콘을 새로 생성할 때",
+      "when": "이미지·그림·썸네일·로고·포스터·배너·일러스트·아이콘·움짤(GIF)을 새로 생성할 때",
       "priority": 20,
       "keywords": [
         "이미지 만들",
@@ -24,7 +24,16 @@
         "프로필 이미지",
         "키 아트",
         "create image",
-        "generate image"
+        "generate image",
+        "움짤",
+        "GIF 만들",
+        "gif 만들",
+        "애니메이션 GIF",
+        "움직이는 이미지",
+        "챗지피티 웹으로",
+        "웹으로 이미지",
+        "make a gif",
+        "animated gif"
       ],
       "exclude": [
         "코드",

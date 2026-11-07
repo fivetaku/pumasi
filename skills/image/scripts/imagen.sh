@@ -9,7 +9,7 @@ TARGET_PATH="${2:-}"
 EXPECTED_ASPECT="${3:-}"   # 선택: "16:9" 처럼 주면 실제 비율과 비교해 경고
 
 if [[ -z "$PROMPT_FILE" || -z "$TARGET_PATH" ]]; then
-  echo "Usage: $0 <prompt_file> <target_image_path> [expected_aspect e.g. 16:9] [--ref <image> ...] [--backend <codex|grok>]" >&2
+  echo "Usage: $0 <prompt_file> <target_image_path> [expected_aspect e.g. 16:9] [--ref <image> ...] [--backend <codex|grok|web>]" >&2
   exit 2
 fi
 
@@ -30,8 +30,8 @@ while [[ $_i -le $# ]]; do
     [[ -z "$GROK_REF" ]] && GROK_REF="$_r"
   elif [[ "$_a" == "--backend" ]]; then
     _i=$((_i+1)); BACKEND="${!_i:-}"
-    if [[ "$BACKEND" != "codex" && "$BACKEND" != "grok" ]]; then
-      echo "ERROR: --backend must be codex or grok (got: ${BACKEND:-<none>})" >&2; exit 2
+    if [[ "$BACKEND" != "codex" && "$BACKEND" != "grok" && "$BACKEND" != "web" ]]; then
+      echo "ERROR: --backend must be codex, grok or web (got: ${BACKEND:-<none>})" >&2; exit 2
     fi
   fi
   _i=$((_i+1))
@@ -62,8 +62,9 @@ aspect_warn() { # args: W H "ew:eh"
 }
 
 # 실제 생성 모델 판별 — PNG의 C2PA(caBX) 매니페스트 softwareAgent{name,version}을 읽는다.
-# codex JSON/rollout에는 이미지 모델 ID가 안 찍히고 서버가 모델을 핀하므로(2026-09-09 실측 gpt-image 2.0),
-# 이 줄이 "지금 어느 모델인지"를 아는 유일한 감사 경로다. 매니페스트가 없으면 (unverified).
+# codex JSON/rollout에는 이미지 모델 ID가 안 찍히고 서버가 모델을 정한다. 2026-09-09엔 "gpt-image 2.0"처럼
+# 버전이 찍혔지만 2026-11-08 실측부터는 "ChatGPT gpt-image"로 버전 숫자가 빠졌다 — 출처 표시로만 쓴다.
+# 매니페스트가 없으면 (unverified).
 c2pa_model() { # echo "gpt-image 2.0" 또는 "(unverified)"
   python3 - "$1" <<'PY' 2>/dev/null || echo "(unverified)"
 import sys
@@ -86,6 +87,25 @@ PY
 if [[ ! -f "$PROMPT_FILE" ]]; then
   echo "ERROR: prompt file not found: $PROMPT_FILE" >&2
   exit 2
+fi
+
+if [[ "$BACKEND" == "web" ]]; then
+  # ChatGPT 웹(로그인된 구독 세션) — 애니메이션 GIF 등 Codex 이미지 도구에 없는 출력이 필요할 때.
+  # 전용 브라우저(CDP 9224)를 자동화하는 webgen.py(+ 벤더링한 chatgpt_web_core.py)에 위임한다.
+  # 산출 포맷(png/gif)은 웹이 정하고 webgen.py 가 확장자를 맞춘다 — 결과 경로는 출력의 path: 기준.
+  # exit: 3=로그인·브라우저 필요(사람) 4=전송 실패 5=타임아웃(--harvest 로 회수) 6=정책 거부 7=한도
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  [[ ${#REF_ARGS[@]} -gt 0 ]] && echo "WARN: web 백엔드는 --ref 를 아직 지원하지 않음 — 레퍼런스 없이 생성" >&2
+  echo "[imagen.sh] backend=web (ChatGPT 웹) — target: $TARGET_PATH"
+  set +e
+  python3 "$SCRIPT_DIR/webgen.py" --prompt-file "$PROMPT_FILE" --out "$TARGET_PATH" \
+    ${PUMASI_IMAGE_WEB_MAX_WAIT:+--max-wait "$PUMASI_IMAGE_WEB_MAX_WAIT"}
+  rc=$?
+  set -e
+  if [[ $rc -eq 3 ]]; then
+    echo "REASON: ChatGPT 웹 로그인(또는 전용 브라우저 기동)이 필요합니다 → python3 \"$SCRIPT_DIR/webgen.py\" --login 으로 창을 띄워 chatgpt.com 에 로그인한 뒤 다시 실행" >&2
+  fi
+  exit $rc
 fi
 
 if [[ "$BACKEND" == "grok" ]]; then

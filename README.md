@@ -161,7 +161,7 @@ Round 3: Final integration          (Claude direct)
 
 ### Image generation — `/pumasi:image`
 
-pumasi also ships an image-generation skill (the plugin's second half). Say "make a thumbnail / logo / poster / banner" or `/pumasi:image` and it generates images through **Codex `gpt-image-2` (default — any aspect ratio, strong Korean/English text rendering)** or **Grok `image_gen` (zero marginal cost on SuperGrok; 9:16 / 16:9 / 1:1 only)**. The backend is chosen in one question unless you name it. Images are saved to a project-local path — no clipboard paste, no base64 in the transcript.
+pumasi also ships an image-generation skill (the plugin's second half). Say "make a thumbnail / logo / poster / banner" or `/pumasi:image` and it generates images through **Codex (default — any aspect ratio, strong Korean/English text rendering)** , **Grok `image_gen` (zero marginal cost on SuperGrok; 9:16 / 16:9 / 1:1 only)**, or **ChatGPT web (your logged-in ChatGPT session — newest image model first, animated GIFs; needs Python playwright and a one-time login in a dedicated browser)**. GIF requests go to ChatGPT web automatically. The backend is chosen in one question unless you name it. Images are saved to a project-local path — no clipboard paste, no base64 in the transcript.
 
 ### Commands
 

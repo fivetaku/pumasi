@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.23.0 (2026-11-08)
+- **ChatGPT 웹 레인 추가(`/pumasi:image` 세 번째 백엔드).** 백엔드 질문에 ③ ChatGPT 웹이 생겼다. 로그인된 ChatGPT 웹 세션을 전용 브라우저(CDP 9224)로 자동화해 생성한다. 브라우저 코어는 insane-review의 `pack_and_ask.py`에서 필요한 부분(함수 52개, 636줄)만 AST로 추출해 `scripts/chatgpt_web_core.py`로 벤더링했다 — insane-review 설치 없이 동작한다. 비공개로 쓰던 insane-image-web을 품앗이 안으로 옮긴 것이다(`imagen.sh --backend web` → `scripts/webgen.py`). 구 `~/.insane-image-web/` 프로필에 로그인돼 있으면 그대로 이어 쓴다.
+- **애니메이션 GIF.** Codex 이미지 도구는 인자가 prompt·참조 이미지·투명 배경뿐이라 GIF를 만들 수 없다(codex-cli 0.167 실측: "애니메이션 GIF를 출력할 수 없습니다"로 거부). ChatGPT 웹은 GIF가 나온다(실측: 8프레임·150ms 요청 그대로). GIF·움짤 요청은 묻지 않고 웹 레인으로 보낸다. 결과 보고에 `format:`·프레임 수가 찍힌다.
+- **2026-11 ChatGPT UI 대응.** 턴이 `div[data-chatgpt-search-message-ids]`로 바뀌고 생성 이미지가 `blob:` URL로 나오며 copy 버튼 테스트 ID가 사라져, 구 insane-image-web은 완료 판정·회수가 모두 실패했다(exit 5). 완료 판정을 "이미지별 편집·공유 버튼 + 연속 관측 안정"으로, 회수를 페이지 안 blob fetch로 바꿨다. 구 DOM도 계속 지원한다.
+- **모델 판별 문구 정리.** C2PA softwareAgent가 2026-11부터 `ChatGPT gpt-image`로만 찍혀 버전을 가를 수 없다. 기대 모델 비교(-unverified 접미사)는 없앴고, `model:` 줄은 출처 표시로만 남겼다. Codex 레인 표기에서 `gpt-image-2`를 뺐다.
+
 ## 1.22.0 (2026-11-03)
 - **Grok Bot 팀 재생성 버그 수정.** 앱(0.78.x)이 봇 레코드를 `name="이름 · 타이틀", title=""`로 합쳐 저장해 이름 정확 일치가 영원히 실패했고, `team apply`마다 봇 5종이 새로 생겼다(11-03 실측: 지휘 봇 4개·중복 약 15개). 이름 비교를 base·lane 분해로 바꾸고, 같은 이름이 여럿이면 가장 오래된 봇을 정본으로 쓴다(`resolve`·`team`·`doctor` 공통). 여분은 `team plan`에 `extra`로 표시, `team apply --prune --admin`으로 삭제.
 - **레인(lane).** `team.json`의 `lanes`(기본 3)만큼 팀을 여러 벌 둔다(레인 2부터 `품앗이#2`, `품앗이-리서치#2`…). `run`은 장부의 열린 job과 봇 턴 상태로 빈 레인을 고르고, 선택 순간은 `~/.grokbot/locks/<botId>` mkdir 잠금으로 보호한다 — 여러 세션이 동시에 품앗이를 써도 대화가 섞이지 않는다. JOB 봉투에 `lane: #k`가 들어가고 역할 봇 이름도 레인 이름으로 치환된다. `cancel`은 같은 레인의 봇만 멈춘다.
