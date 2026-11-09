@@ -1,0 +1,23 @@
+name: ci
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    # 공용 plugin-check의 test job은 파이썬 전용이라 node 테스트는 여기서 따로 돌린다.
+    # 테스트는 가짜 바이너리·임시 HOME을 쓰며 실제 CLI·네트워크를 부르지 않는다.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install runtime dependency (yaml)
+        run: npm install --no-audit --no-fund --prefix skills/pumasi
+      - name: Node tests
+        run: node --test tests/*.test.cjs
+      - name: Worker command contract
+        run: bash tests/test-worker-command.sh
