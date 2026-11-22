@@ -482,6 +482,8 @@ function cmdStart(options, prompt) {
       cwd: t.cwd ? String(t.cwd) : null,
       round: Number(t.round) || 1,
       ...(t.candidate_of ? { candidate_of: String(t.candidate_of), candidate_index: Number(t.candidate_index) } : {}),
+      ...(Array.isArray(t.files) && t.files.length ? { files: t.files.map(String) } : {}),
+      ...(Array.isArray(t.read_only) && t.read_only.length ? { read_only: t.read_only.map(String) } : {}),
       gates: Array.isArray(t.gates) ? t.gates.map(g => ({
         name: String(g.name || 'unnamed'),
         command: String(g.command || ''),

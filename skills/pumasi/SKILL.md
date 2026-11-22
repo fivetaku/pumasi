@@ -68,10 +68,10 @@ description: Host-controlled parallel coding. Claude Code hosts default to Codex
 ## 안티패턴 및 역할 분리
 
 > **instruction 작성 전 반드시 Read**:
-> - `${CLAUDE_PLUGIN_ROOT}/skills/pumasi/references/anti-patterns.md` — 복붙형 instruction 절대 금지 규칙
+> - `${CLAUDE_PLUGIN_ROOT}/skills/pumasi/references/anti-patterns.md` — 복붙형 instruction을 피하는 이유와 자가 점검표
 > - `${CLAUDE_PLUGIN_ROOT}/skills/pumasi/references/role-separation.md` — Claude vs Codex 역할 경계, 경계선 예시
 
-**핵심 원칙 요약**: Claude는 시그니처+요구사항만 작성. 코드 본문(body)은 절대 작성 금지. 강한 게이트(tsc/build/test)로 검증.
+**핵심 원칙 요약**: 호스트는 시그니처+요구사항+게이트를 쓰고 코드 본문(body)은 워커에게 맡긴다. 호스트가 본문을 쓰면 외주로 아끼려던 토큰이 그대로 나가기 때문이다. 검증은 강한 게이트(tsc/build/test)로 한다.
 
 ---
 
@@ -99,10 +99,12 @@ description: Host-controlled parallel coding. Claude Code hosts default to Codex
 | 태스크 3~4개 | **품앗이 기본** — 사용자가 지명하지 않아도 제안하고 승인되면 실행 | Codex·Grok 쿼터로 분산, Claude 쿼터 절약 |
 | 태스크 5개+ | **품앗이 필수** | 병렬 이득이 확실히 큼 |
 
+**품앗이 vs Claude Code Workflow/worktree**: 품앗이는 구현을 Claude 밖의 쿼터(Codex·Grok·Cursor 등)로 넘길 때 쓴다. 작업 격리와 Claude 수준의 품질이 더 중요하면 Workflow + git worktree(Claude 에이전트)를 쓴다.
+
 **적극 분산 원칙 (2026-11-03 오너 지시)**: 독립 태스크가 3개 이상이면 호스트가 먼저 품앗이를 제안한다. 조사·출처 확인·문서·브라우저 작업은 Grok Bot 팀, 코드 작업은 Codex가 기본이고, 두 갈래가 섞이면 라운드 1 Grok Bot 조사 → 라운드 2 Codex 구현으로 나눈다. 같은 라운드 안의 태스크는 전부 동시에 spawn되며 워커 수 상한은 없다(상한은 각 CLI의 쿼터·429뿐). 30일 실측 품앗이 호출 20회 — 규모가 맞는데 직접 코딩한 경우가 더 많았다.
 
-**또한 다음 경우에는 품앗이를 사용하지 않는다:**
-- 기존 코드 수정/버그 수정 (컨텍스트 주입이 과도해짐)
+**다음 경우에는 품앗이가 맞지 않는다:**
+- 고칠 위치를 호스트가 좁히지 못한 기존 코드 수정·버그 수정 — 워커에게 넘길 맥락이 너무 커진다. 고칠 파일(`files`)·재현 방법·게이트를 지정할 수 있으면 기존 코드 수정도 맡겨도 된다(Phase 6 재위임이 그 경우다).
 - 단일 파일 작업 (병렬 이점 없음)
 - 게이트를 만들 수 없는 작업 (UI 미세 조정 등)
 
@@ -160,11 +162,11 @@ Claude가 직접 코딩  Claude가 시그니처+요구사항 작성
   1. **호스트 기본 워커 (권장)** — Claude Code 호스트면 Codex, OMO 등 다른 호스트면 Claude Code. 로컬 레포 코드 작업, 구조화 보고(report.json) 지원
   2. **Grok Bot 팀** — Grok Bot 앱의 클라우드 봇 팀(지휘·리서치·브라우저·코딩·검증·정리)에 job으로 맡긴다. 웹 조사·출처 확인·문서·브라우저 작업용이며 로컬 레포를 직접 고치지 않는다. 처음 고르면 Grok Bot 계정에 품앗이 팀 봇 6개·그룹 1개·스킬 1개를 만든다(삭제 없음)
   3. **Antigravity (agy)** — Google Antigravity CLI(Gemini 계열). 디자인·UI·프론트엔드 화면 작업에 강하다. 로컬 레포를 직접 고친다. report.json 없이 output.txt로 통합
-  4. **다른 CLI (Grok CLI / Cursor / gjc)** — Grok Build CLI(grok-4.6), Cursor Ultra의 cursor-agent(Composer·Codex·**Claude Opus/Fable까지**), 멀티모델은 gajae-code(gjc). 고른 뒤 어느 CLI인지 한 번 더 묻는다
+  4. **다른 CLI (Grok CLI / Cursor / gjc)** — Grok Build CLI, Cursor의 cursor-agent(여러 계열 모델, Claude 계열 포함 — 목록은 `cursor-agent --list-models`), 멀티모델은 gajae-code(gjc). 고른 뒤 어느 CLI인지 한 번 더 묻는다
 
-선택 결과는 Phase 2에서 `.pumasi/pumasi.config.yaml`의 `defaults.command:`에 반영한다. 사용자가 task마다 다른 워커를 명시했을 때만 task별 `command:`를 쓴다. 각 워커의 정확한 command 문자열은 아래 **"외주 워커 교체"** 절의 것을 그대로 쓴다.
+선택 결과는 Phase 2에서 `.pumasi/pumasi.config.yaml`의 `defaults.command:`에 반영한다. 사용자가 task마다 다른 워커를 명시했을 때만 task별 `command:`를 쓴다. 각 워커의 정확한 command 문자열은 아래 **"외주 워커"** 표의 것을 그대로 쓴다.
 
-**Grok Bot 팀을 골랐다면(2번) 선택 직후 준비 1회** — 아래 "Grok Bot 팀" 절의 준비 절차를 그대로 실행한다. `status`가 앱·세션 없음이면 "Grok Bot 앱에 로그인해 주세요"로 알리고 그 task만 다른 워커로 돌린다.
+**Grok Bot 팀을 골랐다면(2번) 선택 직후 준비 1회** — `references/workers/grokbot.md`의 준비 절차를 그대로 실행한다. `status`가 앱·세션 없음이면 "Grok Bot 앱에 로그인해 주세요"로 알리고 그 task만 다른 워커로 돌린다.
 
 **선택 직후 설치 확인 1회**: `command -v <cli>` (grok은 실패 시 `$HOME/.grok/bin/grok` 폴백). 미설치·미인증이면 그대로 알리고 중단하거나 사용자에게 다른 워커를 선택받는다. 명시한 Claude 워커를 Codex로 몰래 바꾸지 않는다.
 
@@ -187,9 +189,11 @@ Claude가 직접 코딩  Claude가 시그니처+요구사항 작성
 > 예시 파일일 뿐이며 업데이트 시 덮어써지므로 **절대 직접 수정하지 않는다**.
 
 > **instruction 작성 전 반드시 Read**:
-> - Codex 워커일 때만 `${CLAUDE_PLUGIN_ROOT}/skills/pumasi/references/codex-guide.md` — Codex 특성, DO/DON'T 규칙, 라이브러리 대체 방지
+> - `${CLAUDE_PLUGIN_ROOT}/skills/pumasi/references/codex-guide.md` — 워커 instruction에 넣을 것·뺄 것, 라이브러리 대체 방지
 > - `${CLAUDE_PLUGIN_ROOT}/skills/pumasi/references/instruction-templates.md` — 템플릿, 좋은/나쁜 예시, 자기 점검 체크리스트
-> - `${CLAUDE_PLUGIN_ROOT}/skills/pumasi/references/tech-stack.md` — 2025-2026 기준 모던 스택 추천표
+> - `${CLAUDE_PLUGIN_ROOT}/skills/pumasi/references/tech-stack.md` — 버전 고르는 원칙(프로젝트 기존 버전 우선)
+
+**task 필드**: `instruction`(목표), `gates`(완료 기준 명령), 선택으로 `files`(고칠 파일 목록)·`read_only`(읽기만 할 파일 목록). 워커 프롬프트는 목표 → 맥락 → 대상 파일 → 완료 기준(gates 명령 전문) → 경계 → 보고 형식 순서로 만들어진다. 워커가 게이트 명령을 직접 돌려 보고 끝내므로, 게이트는 작업 디렉토리에서 그대로 실행되는 명령으로 쓴다.
 
 **instruction 작성 시 반드시 지킬 것:**
 1. 시그니처와 요구사항만 작성 (코드 본문 작성 금지)
@@ -300,11 +304,12 @@ ${CLAUDE_PLUGIN_ROOT}/
 └── skills/pumasi/
     ├── SKILL.md                 # 이 문서
     ├── references/
-    │   ├── anti-patterns.md      # 복붙형 instruction 절대 금지
+    │   ├── anti-patterns.md      # 복붙형 instruction을 피하는 이유
     │   ├── role-separation.md    # Claude vs Codex 역할 경계
-    │   ├── codex-guide.md        # Codex 특성 + instruction 규칙
+    │   ├── codex-guide.md        # 워커 instruction 작성 요령
     │   ├── instruction-templates.md # instruction 템플릿 + 좋은/나쁜 예시
-    │   ├── tech-stack.md         # 모던 기술스택 추천표
+    │   ├── tech-stack.md         # 버전 고르는 원칙
+    │   ├── workers/              # 워커 CLI별 설치·플래그·실측 이력
     │   └── examples.md           # 실행 예시 (Todo 앱, 인증 시스템)
     └── scripts/
         ├── pumasi.sh             # 진입점
@@ -359,124 +364,19 @@ Round 3: 최종 통합 (Claude 직접)
 - 사용자가 직접 고르겠다고 했으면 AskUserQuestion으로 후보 요약을 선택지로 보여 준다(후보 2~3개 + "다시 생성").
 - Grok Bot 후보는 지휘 봇이 job을 하나씩 받아 `--queue`로 차례를 기다린다(실제로는 순차). 주간 사용량이 있으니 Grok Bot 후보는 1개까지로 둔다.
 
-**선택된 워커 CLI 필요** (Claude Code 호스트 기본은 Codex, 다른 호스트 기본은 Claude):
-```bash
-command -v codex  # 설치 확인
-# 없으면: npm install -g @openai/codex
-```
+**외주 워커** — 호스트별 기본 워커(Claude Code 호스트는 Codex, 다른 호스트는 Claude) 대신 task의 `command:` 또는 `defaults.command:`로 다른 CLI를 지정할 수 있다. Claude Code 워커는 stdin으로 프롬프트를 받아 구조화 JSON을 돌려주고, 나머지 CLI는 프롬프트를 **마지막 positional 인자**로 받는다. 아래 command 문자열을 그대로 쓰고, 설치·인증·플래그 이유·실측 이력은 각 상세 파일을 본다.
 
-**외주 워커 교체 (선택) — Grok(`grok`) / Cursor(`cursor-agent`) / gajae-code(`gjc`) / Antigravity CLI(`agy`)**:
-호스트별 기본 워커 대신 task의 `command:` 또는 `defaults.command:`로 다른 CLI를 명시할 수 있다.
-Claude Code는 stdin으로 프롬프트를 받고 구조화 JSON을 반환한다. 다른 CLI는 기존처럼 **마지막 positional 인자**로 프롬프트가 전달된다.
+| 워커 | command | 상세 |
+|------|---------|------|
+| Codex | `codex exec --dangerously-bypass-approvals-and-sandbox` | `references/workers/codex.md` |
+| Grok CLI | `grok --no-auto-update --no-alt-screen --sandbox workspace --always-approve -p` | `references/workers/grok.md` |
+| Cursor | `cursor-agent -p --force --output-format text` | `references/workers/cursor.md` |
+| gajae-code | `gjc --print` | `references/workers/gjc.md` |
+| Antigravity | `agy --dangerously-skip-permissions -p` | `references/workers/agy.md` |
+| Grok Bot 팀 | `node /abs/path/to/grokbot.mjs run --text --queue --partial-ok --timeout 3000 --dest .pumasi/grokbot/<task>` | `references/workers/grokbot.md` (준비 절차 포함) |
 
-**Grok CLI(`grok`)** — xAI Grok Build (코드·대규모 분석):
-```yaml
-pumasi:
-  defaults:
-    command: "grok --no-auto-update --no-alt-screen --sandbox workspace --always-approve -p"
-```
-- 실측(2026-08-23, grok 1.0.4): 비-TTY 파이프에서 stdout 정상 출력 — agy 같은 누락 버그 없음.
-- **샌드박스가 기본 off**라 `--sandbox workspace`로 조인다 (codex와 반대 — codex는 기본 샌드박스).
-- **자동 업데이터가 백그라운드로 돌므로 `--no-auto-update` 필수.** 넣지 않으면 워커 실행 중 업데이트가 끼어든다.
-- codex 전용 `--output-schema/-o` 미주입 → `report.json` 없이 `output.txt` 기반 통합 (graceful).
-  grok 자체는 `--json-schema`로 구조화 출력을 지원하지만 결과가 stdout JSON의 `.text`에 **문자열로 중첩**되므로
-  codex처럼 파일로 떨어지지 않는다 (언랩 필요 — 현재 미구현).
-- 모델은 grok 기본값(`grok-4.6`) 사용. `grok-code-fast-1`은 2026-08-15 폐기되었으므로 쓰지 않는다.
-- 인증: `grok login`(구독 세션, `XAI_API_KEY` 불필요) 또는 `XAI_API_KEY` 환경변수.
-- ⚠️ **PATH 주의**: `~/.grok/bin/grok`에 설치되고 셸 프로필을 통해 PATH에 들어간다.
-  비대화형 셸에서 `command -v grok`이 실패하면 절대경로(`$HOME/.grok/bin/grok`)로 지정한다.
-- 설치: `curl -fsSL https://x.ai/cli/install.sh | bash` (원격 스크립트 즉시 실행 — 내용을 먼저 확인하려면 `-o`로 받아서 읽고 실행).
-
-**Cursor CLI(`cursor-agent`)** — Cursor Ultra 구독 워커 (Composer/Codex/Claude 멀티모델):
-```yaml
-pumasi:
-  defaults:
-    command: "cursor-agent -p --force --output-format text"
-    # 모델 핀 예: "cursor-agent -p --force --model composer-2.5 --output-format text"
-```
-- **모델 선택이 최대 강점**: `--model`로 `composer-2.5`(빠른 편집), `gpt-5.3-codex-*` 계열,
-  **`claude-opus-5-thinking-high` / `claude-fable-5-thinking-high`** 까지 지정 가능 —
-  Claude Max 쿼터 소진 시 Cursor 구독으로 Opus/Fable 작업을 잇는 우회 경로가 된다. 목록: `cursor-agent --list-models`.
-- 프롬프트는 마지막 positional 인자로 자동 전달(품앗이 규격 그대로). `-p`(print) + `--output-format text` 필수.
-- **`--force` 필수** — 없으면 "Do you trust the contents of this directory?"에서 멈춘다(비대화형 즉사).
-  CLI 안내대로 `--trust` / `--yolo` / `-f` 중 아무거나면 되고, `--yolo`는 `--force`의 별칭이다.
-  (실측 2026-08-27: 신뢰 이력 없는 새 디렉터리에서 `--force`만으로 통과, 없으면 파일 생성 0건으로 정지)
-- codex 전용 `--output-schema/-o` 미주입 → `report.json` 없이 `output.txt` 기반 통합 (graceful).
-- 실측 E2E(2026-08-27, 2026.08.25 빌드): 워커 2개 동시 실행(하나는 `--model composer-2.5`, 하나는 기본)
-  **둘 다 exit 0, 게이트 4/4 통과, 소요 47~59초**, `output.txt` 정상 회수. `report.json`은 예상대로 미생성.
-- ⚠️ **훅 충돌 주의**: Orca 등이 `~/.cursor/hooks.json`에 preToolUse 훅을 심어두면 참조 스크립트가 사라졌을 때
-  "환경 훅 오류로 파일 생성 차단"으로 전 작업이 실패한다. 워커가 이 에러를 내면 `~/.cursor/hooks.json`을 확인한다.
-- 인증: `cursor-agent status`로 확인 (IDE 로그인 공유). 자동화·CI는 `CURSOR_API_KEY` 환경변수.
-- 설치: `curl https://cursor.com/install -fsS | bash` → `~/.local/bin/`에 배포된다.
-  같은 바이너리가 `agent`라는 이름으로도 심링크되지만, **`agent`는 grok CLI(`~/.grok/bin/agent`)와 이름이 충돌**하므로
-  품앗이 config에는 반드시 `cursor-agent`(또는 절대경로)를 쓴다.
-
-**gajae-code(`gjc`)** — 멀티모델 코딩 CLI (`Yeachan-Heo/gajae-code`):
-```yaml
-pumasi:
-  defaults:
-    command: "gjc --print"   # 프롬프트가 --print 뒤 positional(MESSAGE)로 자동 전달됨
-```
-- 모델은 gjc 기본값 사용 (필요 시 `gjc --print --model opus` 등으로 핀).
-- codex 전용 `--output-schema/-o` 미주입 → `report.json` 없이 `output.txt` 기반 통합 (graceful).
-- 실측(2026-06-19): 비-TTY 파이프에서도 stdout 정상 출력 — agy 같은 누락 버그 없음.
-- 설치: https://github.com/Yeachan-Heo/gajae-code
-
-**Antigravity CLI(`agy`)** (디자인/UI):
-```yaml
-pumasi:
-  defaults:
-    command: "agy --dangerously-skip-permissions -p"   # 프롬프트는 -p 값으로 자동 전달됨
-```
-- `agy`는 codex의 `--output-schema/-o`(구조화 보고서)를 지원하지 않는다 → `report.json` 없이 `output.txt` 기반으로만 통합된다.
-- `agy` 1.0.x는 비-TTY(파이프)에서 stdout 출력이 누락되는 버그가 있어 `output.txt`가 빌 수 있다. 결과가 비면 Claude가 직접 통합하거나 codex로 폴백한다.
-- 모델 지정 플래그(`-m`)는 헤드리스에서 미지원/고정으로 보고됨 → 명령에 넣지 않는다.
-- 설치(검증 권장): 스크립트를 받아 **내용을 확인한 뒤** 실행한다.
-  ```bash
-  curl -fsSL https://antigravity.google/cli/install.sh -o /tmp/agy-install.sh
-  less /tmp/agy-install.sh        # 무엇을 설치하는지 직접 확인
-  bash /tmp/agy-install.sh
-  ```
-  빠른 설치를 원하면 `curl -fsSL https://antigravity.google/cli/install.sh | bash` (원격 스크립트를 검증 없이 즉시 실행 — 신뢰할 때만).
-
-**Grok Bot 팀(`grokbot`)** — Grok Bot 앱의 클라우드 봇 팀 (조사·출처·브라우저·문서):
-
-품앗이에 번들된 브릿지 `skills/pumasi/scripts/grokbot/grokbot.mjs`가 데스크톱 앱 세션을 재사용해 Grok Bot에 job을 보낸다.
-지휘 봇 "품앗이"가 공용 스킬 "품앗이 job 프로토콜"대로 하위 봇에 나눠 맡기고 `JOB_DONE` 줄로 닫는다.
-비공식·비문서 내부 API라 앱 업데이트로 깨질 수 있다(공식 채팅 API 없음).
-
-준비 1회 (Claude가 실행, `$GB`는 브릿지 절대경로 — `${CLAUDE_PLUGIN_ROOT}/skills/pumasi/scripts/grokbot/grokbot.mjs`를 셸에서 풀어 쓴다):
-```bash
-node "$GB" status                  # app·session 이 true 여야 한다 (맥 전용, Grok Bot 앱 로그인 필요)
-node "$GB" team plan               # 팀이 없으면 create 목록이 나온다
-node "$GB" team apply --admin      # 사용자가 Phase 0.5에서 Grok Bot을 고른 것이 생성 동의다. 이미 있으면 갱신만
-```
-첫 실행 때 macOS가 "Grok Bot Safe Storage" 키체인 접근 허용 창을 띄운다 — 사용자에게 "허용"을 눌러 달라고 한 줄로 알린다.
-
-config (task별):
-```yaml
-    - name: market-research
-      command: "node /abs/path/to/grokbot.mjs run --text --queue --partial-ok --timeout 3000 --dest .pumasi/grokbot/market-research"
-      instruction: |
-        목표·완료 기준·산출물을 쓴다(웹 조사·문서 위주). 로컬 파일 경로는 Grok Bot이 볼 수 없다.
-      gates:
-        - name: "요약 회수"
-          command: "[ -f .pumasi/grokbot/market-research/SUMMARY.md ]"
-```
-- `command`의 경로는 config를 쓸 때 **절대경로로 풀어** 넣는다(yaml은 환경변수를 펼치지 않는다).
-- 프롬프트는 마지막 positional 인자로 전달된다(품앗이 규격 그대로). `--text`면 output.txt에 최종 보고 + `[grokbot] state=… job=… dest=…` 줄이 남는다.
-- 종료 코드: 0 성공(회수·해시 검증 통과) · 3 사람 응답 대기 · 4 진행 중(재접속: `node "$GB" watch <job>`) · 5 partial · 6 failed · 7 취소 · 8 회수 실패.
-- 지휘 봇 하나는 job을 한 번에 하나만 받는다. 팀은 `team.json`의 `lanes`(기본 3)만큼 여러 벌 있고(레인 2부터 이름 끝에 `#2`·`#3`), `run`은 장부·봇 상태로 빈 레인을 골라 잡으므로 여러 세션·같은 라운드의 Grok Bot task가 서로 섞이지 않는다. 레인이 다 차면 `--queue`로 차례를 기다린다. 특정 레인만 쓰려면 `--bot 품앗이#2`.
-- Grok Bot 앱은 봇 이름을 "이름 · 타이틀"로 합쳐 저장한다. 브릿지는 이 형태를 풀어 비교하므로 `team apply`를 반복해도 봇이 다시 생기지 않는다. 같은 이름이 여럿이면(과거 중복 생성) 가장 오래된 봇이 정본이고 나머지는 `extra`로 표시된다 — `team apply --prune --admin`으로 지운다.
-- `--timeout`은 품앗이 `settings.timeout`(기본 3600초)보다 작게 둔다.
-- `--partial-ok`(권장): 지휘 봇이 partial로 닫아도 산출물 회수·해시 검증이 통과하면 종료 코드 0으로 끝낸다. 그래야 품앗이 게이트가 건너뛰지 않고 내용을 직접 판정한다. output.txt 끝의 `[grokbot] state=partial` 줄로 partial이었다는 사실은 남는다.
-- 산출물 회수: `--dest` 폴더로 받아 MANIFEST(JSON 배열 또는 `{files:[...]}`) 해시를 맥에서 다시 계산해 대조한다. 해시로 검증된 파일이 0개면 실패다.
-  - `~/.grokbot/config.json`에 `{"ssh":"user@host"}`(Grok Bot VM으로 가는 SSH, 예: Tailscale)가 있으면 SSH로 받는다.
-  - 없거나 SSH가 안 되면 **대화 회수**: 지휘 봇에게 파일을 base64로 메시지에 실어 보내게 하고 받는다(약 1분, 전체 400KB 이하. 넘으면 MANIFEST·SUMMARY.md만). 직접 실행은 `node "$GB" fetch <job> --chat --dest <dir>`.
-- 점검: `node "$GB" doctor` — 앱 버전, 세션 파일 형식, RPC 응답 모양(완료 판정에 쓰는 필드 포함), 팀 선언 일치, 회수 채널을 읽기 전용으로 확인한다. 앱 업데이트 뒤나 job이 이상하게 끝날 때 먼저 돌린다.
-- 하지 않는 일: 로컬 레포 수정(코드는 Codex task로), 결제·발송·머지·배포·삭제(프로토콜이 차단, 필요하면 그 단계만 blocked).
-- 개인 비서 봇과 같은 VM을 쓰므로 품앗이 팀은 공개 웹 조사·정리 위주로 쓴다. 개인 계정 로그인 작업은 승인 카드 대상이다.
-- 회귀 확인: `node skills/pumasi/scripts/grokbot/test-offline.mjs`.
+- 모델 이름은 문서에 고정하지 않는다. 핀이 필요하면 각 CLI의 `--list-models`(예: `cursor-agent --list-models`)나 설정·도움말로 현재 이름을 확인해 command에 넣는다.
+- Codex·Claude 워커만 `report.json`(구조화 보고)을 만든다. 나머지는 `output.txt`로 통합한다.
 
 **task별 워커 지정**: 워커 선택지에는 없지만, 사용자가 원하면 task마다 다른 `command:`를 지정해 codex / grok / gjc / agy / grokbot에 나눠 맡길 수 있다.
 

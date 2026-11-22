@@ -65,4 +65,4 @@ Read the skill file, then follow the workflow:
 
 1. Read `${CLAUDE_PLUGIN_ROOT}/skills/pumasi/SKILL.md`
 2. Follow SKILL.md's workflow with user's request: `$ARGUMENTS`
-3. Every question MUST use the AskUserQuestion tool — NEVER output questions as text
+3. When you need to ask the user something and AskUserQuestion is available, use it rather than plain-text questions — the tool gives clickable options and a clean answer. Without the tool (other hosts), ask in normal conversation.

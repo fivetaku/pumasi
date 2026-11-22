@@ -1,17 +1,8 @@
-# 모던 기술스택 기본 원칙
+# 버전 고르는 원칙
 
-Claude가 instruction을 작성할 때, 항상 최신 안정 버전 기준으로 기술을 선택한다.
+특정 연도의 추천표를 두지 않는다. 표는 금방 낡고, 낡은 표는 워커에게 틀린 버전을 강요한다.
 
-## 2025-2026 기준 모던 스택
-
-| 영역 | 추천 (최신) | 피해야 할 것 |
-|------|------------|-------------|
-| 프론트엔드 | React 19, Vue 3.5+, Svelte 5 | React 18 이하 |
-| 빌드 | Vite 6+, Turbopack | Vite 5 이하, Webpack |
-| CSS | Tailwind 4, CSS Modules | Tailwind 3 이하 |
-| 백엔드 | Hono, Elysia, Express 5 | Express 4 |
-| 런타임 | Bun, Node 22+ | Node 18 이하 |
-| ORM/DB | Drizzle ORM, better-sqlite3 | Sequelize, TypeORM |
-| TypeScript | 5.8+ | 5.3 이하 |
-| 패키지매니저 | bun, pnpm | npm (가능하면) |
-| 테스트 | Vitest | Jest (Vite 프로젝트에서) |
+1. **기존 프로젝트**: `package.json`·잠금 파일·`pyproject.toml` 등에 이미 있는 버전을 따른다. 업그레이드는 별도 태스크로 명시할 때만 한다.
+2. **새 패키지·새 프로젝트**: 그 시점의 안정 버전을 레지스트리에서 확인해 instruction에 적는다 (예: `npm view <pkg> version`, `pip index versions <pkg>`).
+3. **꼭 지켜야 할 메이저 버전**(API가 크게 다른 경우)은 instruction에 명시하고, 필요하면 게이트로 확인한다 (예: `node -e "process.exit(require('react/package.json').version.startsWith('19.')?0:1)"`).
+4. 프로젝트 공통 규칙(패키지 매니저, 모듈 형식 등)은 config의 `style`에 적으면 모든 워커 프롬프트에 들어간다.

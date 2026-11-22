@@ -84,6 +84,86 @@ function atomicWriteJson(filePath, payload) {
   fs.renameSync(tmpPath, filePath);
 }
 
+function listOf(value) {
+  if (Array.isArray(value)) return value.map(String).filter(Boolean);
+  return value ? [String(value)] : [];
+}
+
+// 워커 프롬프트: 목표 → 맥락 → 대상 파일 → 완료 기준(gates) → 경계 → 보고 형식.
+// instruction이 없는 task는 기존처럼 basePrompt만 보낸다.
+function buildWorkerPrompt({ taskConfig, style, jobCwd, basePrompt = '' }) {
+  if (!taskConfig || !taskConfig.instruction) return basePrompt;
+  const workDir = taskConfig.cwd || jobCwd;
+  const parts = [
+    `# 작업 지시서: ${taskConfig.name}`,
+    '',
+    '## 목표',
+    '',
+    taskConfig.instruction,
+    '',
+    '## 맥락',
+    `- 작업 디렉토리: ${workDir}`,
+  ];
+  if (basePrompt && basePrompt.trim()) {
+    parts.push('', '### 프로젝트 컨텍스트', '', basePrompt.trimEnd());
+  }
+
+  const editFiles = listOf(taskConfig.files);
+  const readFiles = listOf(taskConfig.read_only);
+  if (editFiles.length || readFiles.length) {
+    parts.push('', '## 대상 파일');
+    if (editFiles.length) parts.push('- 고칠 파일:', ...editFiles.map((f) => `  - ${f}`));
+    if (readFiles.length) parts.push('- 읽기만 할 파일 (수정하지 않음):', ...readFiles.map((f) => `  - ${f}`));
+  }
+
+  const gates = (taskConfig.gates || []).filter((g) => g && g.command);
+  parts.push('', '## 완료 기준 — 직접 실행해 통과시킬 것');
+  if (gates.length) {
+    parts.push('호스트가 작업 디렉토리에서 아래 명령을 그대로 다시 실행해 완료를 판정한다. 보고 전에 직접 실행해 모두 종료 코드 0(통과)이 되게 한다. 통과시키지 못했으면 실패한 명령과 출력 요지를 보고에 적는다.');
+    for (const g of gates) parts.push(`- ${g.name}: \`${g.command}\` → 기대 결과: 종료 코드 0`);
+  } else {
+    parts.push('- 지정된 검사 명령이 없다. 프로젝트의 빌드/검증 명령(있다면)을 실행해 통과를 확인한다.');
+  }
+
+  parts.push(
+    '',
+    '## 경계',
+    '- 파일은 작업 디렉토리 기준 상대 경로로 만든다 (호스트가 같은 위치에서 통합·검증한다).',
+    '- 지시된 파일만 만들거나 고친다. 다른 워커가 같은 시각에 다른 파일을 작업 중일 수 있다.',
+    '- 지시에 시그니처가 있으면 그대로 구현한다. 다른 서브태스크가 그 시그니처에 기대고 있다.',
+    '- 지시된 라이브러리를 쓴다. 바꿔야 할 이유가 있으면 바꾸지 말고 보고에 이유를 적는다.',
+    '- 버전이 지정되지 않은 패키지는 프로젝트에 이미 있는 버전·잠금 파일을 따르고, 새로 추가할 때만 현재 안정 버전을 쓴다.',
+    '- 코드 스타일은 프로젝트의 기존 관례(린터·포매터 설정, 주변 코드)를 따른다.',
+  );
+  if (style) parts.push('', '### 프로젝트 코드 스타일', String(style));
+
+  parts.push(
+    '',
+    '## 완료 보고 형식 (반드시 이 형식으로 출력)',
+    '구현 완료 후 아래 형식을 반드시 출력하세요:',
+    '',
+    '### 생성 파일 목록',
+    '(파일 경로와 각 파일의 역할을 나열)',
+    '',
+    '### 사용한 라이브러리',
+    '(이름@버전 형태로 나열)',
+    '',
+    '### 주요 함수/클래스 시그니처',
+    '(실제 구현한 export 함수/클래스 목록)',
+    '',
+    '### 빌드 확인',
+    '(완료 기준 명령과 프로젝트의 빌드/검증 명령을 실행한 결과)',
+    '',
+    '### 주요 결정사항',
+    '(구현 중 내린 판단, 지시와 다른 점이 있다면 이유)',
+    '',
+    '### 리스크/주의사항',
+    '(다른 서브태스크와 충돌 가능성, 알려진 제한사항)',
+    '',
+  );
+  return parts.join('\n');
+}
+
 function main() {
   const options = parseArgs(process.argv);
   const jobDir = options['job-dir'];
@@ -125,96 +205,8 @@ function main() {
     : defaultPromptPath;
   const basePrompt = fs.existsSync(promptPath) ? fs.readFileSync(promptPath, 'utf8') : '';
 
-  let taskInstruction = '';
-  if (jobMeta) {
-      const taskConfig = (jobMeta.tasks || []).find((t) => t.name === member);
-      if (taskConfig && taskConfig.instruction) {
-        // Codex 최적화: 명시적이고 구조화된 프롬프트
-        const parts = [
-          `# 작업 지시서: ${taskConfig.name}`,
-          '',
-          '## 작업 환경',
-          `- 작업 디렉토리: ${taskConfig.cwd || jobCwd}`,
-          `- 이 디렉토리에서 파일을 생성/수정하세요`,
-          '',
-          '## 구현 요구사항',
-          '',
-          taskConfig.instruction,
-          '',
-          '---',
-          '',
-          '## 필수 규칙',
-          '- 모든 파일은 위 작업 디렉토리 기준 상대 경로로 생성',
-          '- 지시된 파일만 생성 (추가 파일 생성 금지)',
-          '- 함수/클래스 시그니처는 지시사항 그대로 구현',
-          '- 지시된 라이브러리/패키지를 반드시 사용 (다른 라이브러리로 대체 금지)',
-          '- 구현 완료 후 아래 "완료 보고 형식"에 맞춰 반드시 보고',
-          '',
-          '## 코드 스타일 (반드시 준수)',
-          '- **정확성 최우선**: 간결하게 작성하되 모든 엣지케이스의 동작이 반드시 올바라야 한다. 간결화로 인해 엣지케이스 처리가 달라지면 간결화를 포기하고 정확한 코드를 작성한다.',
-          '- **엣지케이스 명시 규칙**:',
-          '  - 문자열 절삭: 음수/0은 빈 문자열 반환. maxLength가 말줄임표(...) 길이 이하이면(<=3) 말줄임표 없이 원본을 잘라 반환. `const safe = Math.max(0, maxLength); if (safe <= 3) return text.slice(0, safe)`',
-          '  - 날짜 포맷: 명시된 포맷 옵션이 있으면 반드시 Intl.DateTimeFormat에 전달한다 (toLocaleDateString 기본값에 의존하지 않는다)',
-          '  - 범위 역전(min > max): 내부에서 swap하여 정상 처리한다 (무시하거나 원본 반환 금지)',
-          '- **TypeScript 타입 신뢰**: 파라미터에 타입이 있으면 런타임 typeof 체크 금지 (이미 타입시스템이 보장)',
-          '- **관용적 패턴 사용**: `Math.min(Math.max(val, min), max)` 같은 관용구가 있으면 if/else보다 우선 사용',
-          '- **불필요한 중간변수 금지**: `const isValid = pattern.test(x); if (!isValid)` → `if (!pattern.test(x))`',
-          '- **정규식은 함수 내부 인라인**: 모듈 상단 상수로 꺼내지 않음 (단일 사용처)',
-          '- **return 형식**: 객체 리터럴은 인라인 반환 (`return { valid: false, error: "..." }`)',
-        ];
-
-        // config에서 커스텀 스타일 규칙 주입
-        if (jobMeta.style) {
-          parts.push('');
-          parts.push('## 프로젝트 코드 스타일 (추가 규칙)');
-          parts.push(jobMeta.style);
-        }
-
-        parts.push(...[
-          '',
-          '## 기술스택 규칙',
-          '- 패키지 버전은 지시사항에 명시된 버전을 우선 사용',
-          '- 버전이 명시되지 않은 경우 최신 안정 버전(latest stable) 사용',
-          '- 참고 기준 (2025-2026):',
-          '  - React 19+, Next.js 15+, Vite 6+',
-          '  - TypeScript 5.8+, Node.js 22+',
-          '  - Tailwind CSS 4+, Express 5+ 또는 Hono',
-          '  - Bun 또는 pnpm 권장 (npm도 허용)',
-          '- 구버전 사용 금지: React 18, Vite 5, Tailwind 3, Express 4 등은 사용하지 않는다',
-          '',
-          '## 완료 보고 형식 (반드시 이 형식으로 출력)',
-          '구현 완료 후 아래 형식을 반드시 출력하세요:',
-          '',
-          '### 생성 파일 목록',
-          '(파일 경로와 각 파일의 역할을 나열)',
-          '',
-          '### 사용한 라이브러리',
-          '(이름@버전 형태로 나열)',
-          '',
-          '### 주요 함수/클래스 시그니처',
-          '(실제 구현한 export 함수/클래스 목록)',
-          '',
-          '### 빌드 확인',
-          '(TypeScript 컴파일 에러가 없는지 확인한 결과)',
-          '',
-          '### 주요 결정사항',
-          '(구현 중 내린 판단, 지시와 다른 점이 있다면 이유)',
-          '',
-          '### 리스크/주의사항',
-          '(다른 서브태스크와 충돌 가능성, 알려진 제한사항)',
-          '',
-          '---',
-          '',
-        ]);
-        if (basePrompt) {
-          parts.push('## 프로젝트 컨텍스트');
-          parts.push('');
-        }
-        taskInstruction = parts.join('\n');
-      }
-  }
-
-  let prompt = taskInstruction + basePrompt;
+  const taskConfig = jobMeta ? (jobMeta.tasks || []).find((t) => t.name === member) : null;
+  let prompt = buildWorkerPrompt({ taskConfig, style: jobMeta && jobMeta.style, jobCwd, basePrompt });
 
   // DOE E06e: Codex hangs indefinitely on empty prompt
   if (!prompt || !prompt.trim()) {
@@ -391,3 +383,5 @@ function main() {
 if (require.main === module) {
   main();
 }
+
+module.exports = { buildWorkerPrompt };
