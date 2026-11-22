@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.24.0 (2026-11-22)
+- Task gates in the worker prompt
+- Goal, context, files, done criteria, boundaries, report order
+- Worker CLI docs split
+
 ## 1.23.1 (2026-11-08)
 - **웹 레인 조기 실패 수정.** 12프레임처럼 오래 걸리는 GIF는 생성 중 턴에 "ChatGPT 답변:" 라벨만 보이고 스트리밍 표시도 없는 구간이 있어, 25초 무변화 후 "이미지 없음"(exit 5)으로 잘못 끝났다(실측 2건 — 두 대화 모두 실제로는 12프레임 GIF가 완성돼 있었다). 라벨만 있는 텍스트는 거부·무응답 판정에 쓰지 않는다. 실제 거절 문장은 그대로 잡는다. 재시험: 12프레임 GIF 45초 성공.
 
