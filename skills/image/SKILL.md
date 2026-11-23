@@ -13,6 +13,12 @@ description: This skill should be used when the user asks to "/pumasi:image", "�
 > 기존 `/pumasi`(코드 병렬 외주)와 완전히 분리된 독립 스킬.
 > **이미지 요청은 사용자가 "코덱스로"라고 말해도 전부 이 스킬이 담당한다** — /pumasi로 넘기지 않는다.
 
+## 실행 환경 (Claude Code / Codex)
+
+- **Claude Code**: Step 3 질문은 `AskUserQuestion`으로 한다.
+- **Codex**: 시작 전에 이 폴더의 `references/codex.md`를 읽는다(질문 도구 순서·폴백, Codex 백엔드는 네이티브 이미지 도구 직접 호출). async 호출 형식: `{"questions":[{"title":"헤더 — 질문","options":["추천안 (추천) — 설명","대안 — 설명"]}]}` — 문항에는 `title`·`options`(문자열 배열)만, `question`·`header`·`id`는 넣지 않는다.
+- Codex에서는 `${CLAUDE_PLUGIN_ROOT}`를 이 플러그인 루트(이 SKILL.md에서 두 단계 위 폴더)로 바꿔 읽는다.
+
 ---
 
 ## 핵심 원칙

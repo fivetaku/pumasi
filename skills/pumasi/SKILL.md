@@ -8,6 +8,19 @@ description: Host-controlled parallel coding. Claude Code hosts default to Codex
 
 # 품앗이 (Pumasi) — Codex 병렬 외주 개발
 
+## 실행 환경 (Claude Code / Codex)
+
+- **Claude Code**: 선택지 질문은 `AskUserQuestion`으로 한다.
+- **Codex**: 시작 전에 이 폴더의 `references/codex.md`를 읽는다(질문 도구 순서·폴백·호스트 `codex`·중첩 호출 주의). async 호출 형식: `{"questions":[{"title":"헤더 — 질문","options":["추천안 (추천) — 설명","대안 — 설명"]}]}` — 문항에는 `title`·`options`(문자열 배열)만, `question`·`header`·`id`는 넣지 않는다.
+- Codex에서는 `${CLAUDE_PLUGIN_ROOT}`를 이 플러그인 루트(이 SKILL.md에서 두 단계 위 폴더)로 바꿔 읽는다.
+
+## 인자 없이 호출됐을 때
+
+"품앗이 켜줘"처럼 만들 대상이 없으면 아래 질문을 한 번 한다(Claude Code는 `AskUserQuestion`, 헤더 "품앗이 (Pumasi)", 단일 선택). 답을 받으면 상세 설명을 요청한 뒤 이 스킬의 절차로 진행한다.
+
+- 질문: "품앗이 모드로 무엇을 만들까요?"
+- 선택지: 새 프로젝트(새로운 앱/서비스를 품앗이 모드로 구현) / 기능 추가(기존 프로젝트에 여러 기능을 병렬로 추가) / 리팩토링(여러 모듈을 동시에 리팩토링)
+
 ## 호스트와 워커 계약
 
 품앗이를 부른 현재 세션이 항상 **호스트(기획·감독·승인·최종 검증 담당)**다. Claude Code에서 부르면 기본 워커는 Codex이고, OMO·Codex·기타 환경에서 부르면 기본 워커는 Claude Code다. Claude 워커에게 전체 오케스트레이션을 다시 맡기거나 품앗이를 재귀 실행하지 않는다.

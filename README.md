@@ -36,6 +36,8 @@ below describe the original Claude Code host mode.
 
 Restart Claude Code after installation.
 
+Codex: `codex plugin marketplace add fivetaku/gptaku_plugins`, then `codex plugin add pumasi@gptaku-plugins`.
+
 ### 3. Install prerequisites
 
 ```bash

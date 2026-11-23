@@ -25,48 +25,6 @@ If the output is empty, just continue silently. (AskUserQuestion must NOT be in 
 
 # /pumasi Command
 
-이 파일은 Claude Code 플러그인 진입점이다. OMO·Codex 등 다른 호스트에서는
-`skills/pumasi/SKILL.md`의 호스트 계약과 `docs/host-workers.md`의 직접 Node 호출을
-사용한다. 그 환경에서 이 파일의 Claude 전용 setup이나 AskUserQuestion을 강제하지 않는다.
+Claude Code 플러그인 진입점이다. 실제 절차(인자 없을 때의 질문 포함)는 스킬에 있다.
 
-Claude가 PM/감독 역할을 맡고, Codex CLI 인스턴스를 병렬 외주 개발자로 활용하여 대규모 코딩 작업을 수행한다.
-
-## Parse Arguments
-
-Inspect `$ARGUMENTS` to determine the action:
-
-| Argument Pattern | Action | Skill |
-|-----------------|--------|-------|
-| `[작업 설명]` | 품앗이 모드로 작업 시작 | pumasi |
-| (no argument) | 인터랙티브 메뉴 표시 | See below |
-
-## No Argument Provided
-
-**EXECUTE:** 아래 JSON으로 AskUserQuestion 도구를 즉시 호출한다:
-
-```json
-{
-  "questions": [
-    {
-      "question": "품앗이 모드로 무엇을 만들까요?",
-      "header": "품앗이 (Pumasi)",
-      "options": [
-        {"label": "새 프로젝트", "description": "새로운 앱/서비스를 품앗이 모드로 구현"},
-        {"label": "기능 추가", "description": "기존 프로젝트에 여러 기능을 병렬로 추가"},
-        {"label": "리팩토링", "description": "여러 모듈을 동시에 리팩토링"}
-      ],
-      "multiSelect": false
-    }
-  ]
-}
-```
-
-After user selection, ask for detailed description, then invoke pumasi skill.
-
-## Execute
-
-Read the skill file, then follow the workflow:
-
-1. Read `${CLAUDE_PLUGIN_ROOT}/skills/pumasi/SKILL.md`
-2. Follow SKILL.md's workflow with user's request: `$ARGUMENTS`
-3. When you need to ask the user something and AskUserQuestion is available, use it rather than plain-text questions — the tool gives clickable options and a clean answer. Without the tool (other hosts), ask in normal conversation.
+`$ARGUMENTS`(작업 설명, 비어 있을 수 있음)를 넘겨 `${CLAUDE_PLUGIN_ROOT}/skills/pumasi/SKILL.md`를 Read하고, 그 절차를 그대로 따른다. 선택지 질문은 SKILL.md가 지시하는 대로 AskUserQuestion을 쓴다.

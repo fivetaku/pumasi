@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.25.0 (2026-11-23)
+- **Codex에서도 같은 스킬로 동작.** `/pumasi`의 인자 없음 질문을 명령에서 `skills/pumasi/SKILL.md`로 옮기고 명령은 첫 실행 설정 + 스킬 호출만 남겼다(Claude Code 동작 동일). 두 스킬에 "실행 환경" 블록과 `references/codex.md`를 추가해 Codex 질문 도구 순서, 호스트 `codex`(기본 워커 Claude Code)와 Codex 워커 중첩 호출 주의, 이미지 Codex 백엔드의 네이티브 도구 직접 호출을 적었다.
+
 ## 1.24.1 (2026-11-23)
 - **ChatGPT 웹 레인을 GIF 전용으로 축소.** Codex가 Images 2.6을 쓰게 되면서 정지 이미지 백엔드 선택지는 Codex·Grok 둘만 남겼다. 웹 레인은 애니메이션 GIF 요청에만 자동으로 쓴다 — codex-cli 0.171은 `image_generation_animation` 플래그를 켜도 서버가 `GIF output is not enabled for this request`로 거절한다(2026-11-23 실측).
 
