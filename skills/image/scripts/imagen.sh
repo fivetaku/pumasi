@@ -90,7 +90,7 @@ if [[ ! -f "$PROMPT_FILE" ]]; then
 fi
 
 if [[ "$BACKEND" == "web" ]]; then
-  # ChatGPT 웹(로그인된 구독 세션) — 애니메이션 GIF 등 Codex 이미지 도구에 없는 출력이 필요할 때.
+  # ChatGPT 웹(로그인된 구독 세션) — 애니메이션 GIF 전용(Codex 이미지 도구가 GIF를 못 만듦, 2026-11-23 실측). 정지 이미지는 codex/grok.
   # 전용 브라우저(CDP 9224)를 자동화하는 webgen.py(+ 벤더링한 chatgpt_web_core.py)에 위임한다.
   # 산출 포맷(png/gif)은 웹이 정하고 webgen.py 가 확장자를 맞춘다 — 결과 경로는 출력의 path: 기준.
   # exit: 3=로그인·브라우저 필요(사람) 4=전송 실패 5=타임아웃(--harvest 로 회수) 6=정책 거부 7=한도

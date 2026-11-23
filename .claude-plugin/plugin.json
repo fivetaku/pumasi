@@ -1,7 +1,7 @@
 {
   "name": "pumasi",
   "version": "1.24.0",
-  "description": "Parallel coding orchestration + image generation (Codex · Grok · ChatGPT web, animated GIF) — /pumasi for parallel code, /pumasi:image for AI image generation",
+  "description": "Parallel coding orchestration + image generation (Codex · Grok, animated GIF via ChatGPT web) — /pumasi for parallel code, /pumasi:image for AI image generation",
   "author": {
     "name": "chulrolee",
     "url": "https://github.com/fivetaku"
