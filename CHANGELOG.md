@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.24.1 (2026-11-23)
+- **ChatGPT 웹 레인을 GIF 전용으로 축소.** Codex가 Images 2.6을 쓰게 되면서 정지 이미지 백엔드 선택지는 Codex·Grok 둘만 남겼다. 웹 레인은 애니메이션 GIF 요청에만 자동으로 쓴다 — codex-cli 0.171은 `image_generation_animation` 플래그를 켜도 서버가 `GIF output is not enabled for this request`로 거절한다(2026-11-23 실측).
+
 ## 1.24.0 (2026-11-22)
 - Task gates in the worker prompt
 - Goal, context, files, done criteria, boundaries, report order
